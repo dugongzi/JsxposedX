@@ -351,6 +351,18 @@
   "aiIdentifying": "Identifying...",
   "aiGetInfo": "Fetching info...",
   "aiChatInputHint": "Ask me anything...",
+  "aiReverseSessionInitializingHint": "Reverse session is initializing…",
+  "aiReverseSessionInitFailedHint": "Reverse session initialization failed. Sending is unavailable.",
+  "aiReverseSessionInitializingBanner": "Reverse session is initializing. Sending is disabled until it completes.",
+  "aiReverseSessionInitFailedBanner": "Reverse session initialization failed. Sending is currently unavailable.",
+  "aiStopGeneration": "Stop generation",
+  "aiRetryLastTurn": "Retry last turn",
+  "aiRetryInitialization": "Retry initialization",
+  "aiUnavailableToSend": "Unavailable",
+  "aiReverseTabChat": "Chat",
+  "aiReverseTabAnalysis": "Analysis",
+  "aiReverseOpenAnalysis": "APK Files",
+  "aiReverseBackToChat": "Back to chat",
   "aiAssistantTitle": "I am your AI Reverse Assistant",
   "aiAssistantSubtitle": "You can ask about manifest analysis, hardening detection, etc.",
   "aiMessageSendFailed": "Message failed to send. Please check your network or configuration.",
@@ -669,6 +681,3 @@
   },
   "lsposedAddFailedService": "Add failed: LSPosed service unavailable"
 }
-
-
-

@@ -106,6 +106,7 @@ class AiChatList extends HookConsumerWidget {
             key: ValueKey(message.id),
             role: message.role,
             isError: message.isError,
+            isToolCalling: message.isToolResultBubble,
             streamingContentStream: chatNotifier.streamingContentStream,
             onRetry: () => chatNotifier.retryByMessageId(message.id),
             packageName: packageName,
@@ -118,6 +119,10 @@ class AiChatList extends HookConsumerWidget {
             content: message.content,
             role: message.role,
             isError: message.isError,
+            isToolCalling:
+                message.isToolResultBubble &&
+                !message.content.startsWith('✅') &&
+                !message.content.startsWith('❌'),
             onRetry: () => chatNotifier.retryByMessageId(message.id),
             packageName: packageName,
           ),
@@ -132,6 +137,7 @@ class _StreamingAiChatBubble extends HookWidget {
     super.key,
     required this.role,
     required this.isError,
+    required this.isToolCalling,
     required this.streamingContentStream,
     this.onRetry,
     this.packageName,
@@ -139,6 +145,7 @@ class _StreamingAiChatBubble extends HookWidget {
 
   final String role;
   final bool isError;
+  final bool isToolCalling;
   final Stream<String> streamingContentStream;
   final VoidCallback? onRetry;
   final String? packageName;
@@ -174,6 +181,7 @@ class _StreamingAiChatBubble extends HookWidget {
         content: content.value,
         role: role,
         isError: isError,
+        isToolCalling: isToolCalling,
         onRetry: onRetry,
         packageName: packageName,
       ),

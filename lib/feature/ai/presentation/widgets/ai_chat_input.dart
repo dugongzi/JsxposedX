@@ -11,12 +11,16 @@ class AiChatInput extends HookConsumerWidget {
   final String packageName;
   final String? systemPrompt;
   final bool showQuickActions;
+  final Future<void> Function()? onRetryInitialization;
+  final VoidCallback? onOpenAnalysis;
 
   const AiChatInput({
     super.key,
     required this.packageName,
     this.systemPrompt,
     this.showQuickActions = true,
+    this.onRetryInitialization,
+    this.onOpenAnalysis,
   });
 
   @override
@@ -28,16 +32,47 @@ class AiChatInput extends HookConsumerWidget {
     final hasContent = textValue.text.trim().isNotEmpty;
     final isStreaming = chatState.isStreaming;
     final canSend = hasContent && chatState.canSend;
+    final canRetryLastTurn = !hasContent && chatState.canRetryLastTurn;
+    final canRetryInitialization =
+        !hasContent &&
+        chatState.sessionInitState == AiSessionInitState.failed &&
+        onRetryInitialization != null;
+    final actionIcon = isStreaming
+        ? Icons.stop_rounded
+        : canSend
+        ? Icons.arrow_upward_rounded
+        : canRetryLastTurn
+        ? Icons.refresh_rounded
+        : canRetryInitialization
+        ? Icons.replay_rounded
+        : Icons.arrow_upward_rounded;
+    final actionColor = isStreaming || canSend || canRetryLastTurn || canRetryInitialization
+        ? context.colorScheme.primary
+        : context.theme.disabledColor;
     final hintText = switch (chatState.sessionInitState) {
-      AiSessionInitState.initializing => '逆向会话初始化中…',
-      AiSessionInitState.failed => '逆向会话初始化失败，当前不可发送',
+      AiSessionInitState.initializing => context.l10n.aiReverseSessionInitializingHint,
+      AiSessionInitState.failed => context.l10n.aiReverseSessionInitFailedHint,
       AiSessionInitState.ready => context.l10n.aiChatInputHint,
     };
+    final actionLabel = isStreaming
+        ? context.l10n.aiStopGeneration
+        : canSend
+        ? context.l10n.sendToAi
+        : canRetryLastTurn
+        ? context.l10n.aiRetryLastTurn
+        : canRetryInitialization
+        ? context.l10n.aiRetryInitialization
+        : context.l10n.aiUnavailableToSend;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        if (showQuickActions) AiQuickActions(packageName: packageName, systemPrompt: systemPrompt),
+        if (showQuickActions)
+          AiQuickActions(
+            packageName: packageName,
+            systemPrompt: systemPrompt,
+            onOpenAnalysis: onOpenAnalysis,
+          ),
         Container(
           padding: EdgeInsets.fromLTRB(16.w, 4.h, 16.w, 20.h),
           decoration: BoxDecoration(
@@ -67,6 +102,19 @@ class AiChatInput extends HookConsumerWidget {
                       child: TextField(
                         controller: textController,
                         enabled: chatState.sessionInitState == AiSessionInitState.ready,
+                        onSubmitted: (_) {
+                          if (!canSend) {
+                            return;
+                          }
+                          final text = textController.text.trim();
+                          ref
+                              .read(
+                                aiChatActionProvider(packageName: packageName)
+                                    .notifier,
+                              )
+                              .send(text);
+                          textController.clear();
+                        },
                         style: TextStyle(
                           fontSize: 15.sp,
                           height: 1.4,
@@ -93,29 +141,43 @@ class AiChatInput extends HookConsumerWidget {
                     ),
                   ),
                   GestureDetector(
-                    onTap: canSend
-                        ? () {
-                            final text = textController.text.trim();
-                            ref.read(aiChatActionProvider(packageName: packageName).notifier).send(text);
-                            textController.clear();
-                          }
-                        : null,
+                    onTap: () async {
+                      final notifier = ref.read(
+                        aiChatActionProvider(packageName: packageName).notifier,
+                      );
+                      if (isStreaming) {
+                        await notifier.stopStreaming();
+                        return;
+                      }
+                      if (canSend) {
+                        final text = textController.text.trim();
+                        await notifier.send(text);
+                        textController.clear();
+                        return;
+                      }
+                      if (canRetryLastTurn) {
+                        await notifier.retryLastTurn();
+                        return;
+                      }
+                      if (canRetryInitialization) {
+                        await onRetryInitialization?.call();
+                      }
+                    },
                     child: Container(
                       width: 44.w,
                       height: 44.w,
                       margin: EdgeInsets.only(left: 8.w),
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: canSend
-                            ? context.colorScheme.primary
-                            : context.theme.disabledColor,
+                        color: actionColor,
                       ),
-                      child: Icon(
-                        isStreaming
-                            ? Icons.hourglass_empty
-                            : Icons.arrow_upward_rounded,
-                        color: Colors.white,
-                        size: 22.sp,
+                      child: Tooltip(
+                        message: actionLabel,
+                        child: Icon(
+                          actionIcon,
+                          color: Colors.white,
+                          size: 22.sp,
+                        ),
                       ),
                     ),
                   ),

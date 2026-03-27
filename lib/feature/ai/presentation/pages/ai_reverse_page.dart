@@ -34,6 +34,50 @@ class AiReversePage extends HookConsumerWidget {
     final scrollController = useScrollController();
     final pageController = usePageController();
     final sessionId = useState<String>('');
+    final currentPage = useState(0);
+
+    Future<void> initializeReverseSession() async {
+      chatNotifier.beginSessionInitialization();
+      SmartDialog.showLoading();
+      try {
+        final previousSessionId = sessionId.value;
+        if (previousSessionId.isNotEmpty) {
+          await apkActionRepository.closeApkSession(previousSessionId);
+        }
+
+        final id = await apkActionRepository.openApkSession(packageName);
+        sessionId.value = id;
+
+        final queryRepo = ref.read(apkAnalysisQueryRepositoryProvider);
+        final manifest = await queryRepo.parseManifest(id);
+        final assets = await queryRepo.getApkAssets(id);
+        final soFiles = assets
+            .where((asset) => asset.name.endsWith('.so'))
+            .map((asset) => asset.path)
+            .toList(growable: false);
+        final dexPaths = assets
+            .where((asset) => asset.name.endsWith('.dex'))
+            .map((asset) => asset.path)
+            .toList(growable: false);
+
+        final apkContext = AiApkContext.fromManifest(manifest, soFiles: soFiles);
+        final apiSummary = await PromptBuilder.loadApiSummary();
+        final prompt = PromptBuilder(isZh: isZh)
+            .withApkContext(apkContext)
+            .withApiSummary(apiSummary)
+            .withTools()
+            .withSoTools()
+            .buildSystemPrompt();
+
+        chatNotifier.setSystemPrompt(prompt);
+        chatNotifier.setApkSession(id, dexPaths);
+        chatNotifier.markSessionReady();
+      } catch (error) {
+        chatNotifier.markSessionInitFailed('逆向会话初始化失败：$error');
+      } finally {
+        SmartDialog.dismiss();
+      }
+    }
 
     final lastMessageId = useRef<String?>(null);
     useEffect(() {
@@ -82,41 +126,7 @@ class AiReversePage extends HookConsumerWidget {
 
     useEffect(() {
       Future.microtask(() async {
-        chatNotifier.beginSessionInitialization();
-        SmartDialog.showLoading();
-        try {
-          final id = await apkActionRepository.openApkSession(packageName);
-          sessionId.value = id;
-
-          final queryRepo = ref.read(apkAnalysisQueryRepositoryProvider);
-          final manifest = await queryRepo.parseManifest(id);
-          final assets = await queryRepo.getApkAssets(id);
-          final soFiles = assets
-              .where((asset) => asset.name.endsWith('.so'))
-              .map((asset) => asset.path)
-              .toList(growable: false);
-          final dexPaths = assets
-              .where((asset) => asset.name.endsWith('.dex'))
-              .map((asset) => asset.path)
-              .toList(growable: false);
-
-          final apkContext = AiApkContext.fromManifest(manifest, soFiles: soFiles);
-          final apiSummary = await PromptBuilder.loadApiSummary();
-          final prompt = PromptBuilder(isZh: isZh)
-              .withApkContext(apkContext)
-              .withApiSummary(apiSummary)
-              .withTools()
-              .withSoTools()
-              .buildSystemPrompt();
-
-          chatNotifier.setSystemPrompt(prompt);
-          chatNotifier.setApkSession(id, dexPaths);
-          chatNotifier.markSessionReady();
-        } catch (error) {
-          chatNotifier.markSessionInitFailed('逆向会话初始化失败：$error');
-        } finally {
-          SmartDialog.dismiss();
-        }
+        await initializeReverseSession();
       });
 
       return () {
@@ -151,10 +161,16 @@ class AiReversePage extends HookConsumerWidget {
           child: Column(
             children: [
               AiReverseHeader(packageName: packageName),
-              _ReverseInitBanner(chatState: chatState),
+              _ReverseInitBanner(
+                chatState: chatState,
+                onRetry: initializeReverseSession,
+              ),
               Expanded(
                 child: PageView(
                   controller: pageController,
+                  onPageChanged: (page) {
+                    currentPage.value = page;
+                  },
                   children: [
                     AiChatList(
                       messages: chatState.visibleMessages,
@@ -168,7 +184,19 @@ class AiReversePage extends HookConsumerWidget {
                   ],
                 ),
               ),
-              AiChatInput(packageName: packageName),
+              if (currentPage.value == 0)
+                AiChatInput(
+                  packageName: packageName,
+                  onRetryInitialization: initializeReverseSession,
+                  onOpenAnalysis: () {
+                    currentPage.value = 1;
+                    pageController.animateToPage(
+                      1,
+                      duration: const Duration(milliseconds: 220),
+                      curve: Curves.easeOutCubic,
+                    );
+                  },
+                ),
             ],
           ),
         ),
@@ -178,9 +206,13 @@ class AiReversePage extends HookConsumerWidget {
 }
 
 class _ReverseInitBanner extends StatelessWidget {
-  const _ReverseInitBanner({required this.chatState});
+  const _ReverseInitBanner({
+    required this.chatState,
+    required this.onRetry,
+  });
 
   final AiChatActionState chatState;
+  final Future<void> Function() onRetry;
 
   @override
   Widget build(BuildContext context) {
@@ -197,8 +229,8 @@ class _ReverseInitBanner extends StatelessWidget {
         ? context.colorScheme.onPrimaryContainer
         : context.colorScheme.onErrorContainer;
     final message = isInitializing
-        ? '逆向会话初始化中，完成前将阻止发送。'
-        : (chatState.error ?? '逆向会话初始化失败，当前不可发送。');
+        ? context.l10n.aiReverseSessionInitializingBanner
+        : (chatState.error ?? context.l10n.aiReverseSessionInitFailedBanner);
 
     return Container(
       width: double.infinity,
@@ -221,6 +253,16 @@ class _ReverseInitBanner extends StatelessWidget {
               style: TextStyle(color: foregroundColor),
             ),
           ),
+          if (!isInitializing)
+            TextButton(
+              onPressed: () async {
+                await onRetry();
+              },
+              child: Text(
+                context.l10n.retry,
+                style: TextStyle(color: foregroundColor),
+              ),
+            ),
         ],
       ),
     );

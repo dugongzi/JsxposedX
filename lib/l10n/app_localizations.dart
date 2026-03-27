@@ -1118,6 +1118,78 @@ abstract class AppLocalizations {
   /// **'有问题尽管问我...'**
   String get aiChatInputHint;
 
+  /// No description provided for @aiReverseSessionInitializingHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'逆向会话初始化中…'**
+  String get aiReverseSessionInitializingHint;
+
+  /// No description provided for @aiReverseSessionInitFailedHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'逆向会话初始化失败，当前不可发送'**
+  String get aiReverseSessionInitFailedHint;
+
+  /// No description provided for @aiReverseSessionInitializingBanner.
+  ///
+  /// In zh, this message translates to:
+  /// **'逆向会话初始化中，完成前将阻止发送。'**
+  String get aiReverseSessionInitializingBanner;
+
+  /// No description provided for @aiReverseSessionInitFailedBanner.
+  ///
+  /// In zh, this message translates to:
+  /// **'逆向会话初始化失败，当前不可发送。'**
+  String get aiReverseSessionInitFailedBanner;
+
+  /// No description provided for @aiStopGeneration.
+  ///
+  /// In zh, this message translates to:
+  /// **'停止生成'**
+  String get aiStopGeneration;
+
+  /// No description provided for @aiRetryLastTurn.
+  ///
+  /// In zh, this message translates to:
+  /// **'重试上一轮'**
+  String get aiRetryLastTurn;
+
+  /// No description provided for @aiRetryInitialization.
+  ///
+  /// In zh, this message translates to:
+  /// **'重试初始化'**
+  String get aiRetryInitialization;
+
+  /// No description provided for @aiUnavailableToSend.
+  ///
+  /// In zh, this message translates to:
+  /// **'不可发送'**
+  String get aiUnavailableToSend;
+
+  /// No description provided for @aiReverseTabChat.
+  ///
+  /// In zh, this message translates to:
+  /// **'对话'**
+  String get aiReverseTabChat;
+
+  /// No description provided for @aiReverseTabAnalysis.
+  ///
+  /// In zh, this message translates to:
+  /// **'分析'**
+  String get aiReverseTabAnalysis;
+
+  /// No description provided for @aiReverseOpenAnalysis.
+  ///
+  /// In zh, this message translates to:
+  /// **'APK目录'**
+  String get aiReverseOpenAnalysis;
+
+  /// No description provided for @aiReverseBackToChat.
+  ///
+  /// In zh, this message translates to:
+  /// **'返回对话'**
+  String get aiReverseBackToChat;
+
   /// No description provided for @aiAssistantTitle.
   ///
   /// In zh, this message translates to:

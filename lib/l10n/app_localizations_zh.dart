@@ -529,6 +529,42 @@ class AppLocalizationsZh extends AppLocalizations {
   String get aiChatInputHint => '有问题尽管问我...';
 
   @override
+  String get aiReverseSessionInitializingHint => '逆向会话初始化中…';
+
+  @override
+  String get aiReverseSessionInitFailedHint => '逆向会话初始化失败，当前不可发送';
+
+  @override
+  String get aiReverseSessionInitializingBanner => '逆向会话初始化中，完成前将阻止发送。';
+
+  @override
+  String get aiReverseSessionInitFailedBanner => '逆向会话初始化失败，当前不可发送。';
+
+  @override
+  String get aiStopGeneration => '停止生成';
+
+  @override
+  String get aiRetryLastTurn => '重试上一轮';
+
+  @override
+  String get aiRetryInitialization => '重试初始化';
+
+  @override
+  String get aiUnavailableToSend => '不可发送';
+
+  @override
+  String get aiReverseTabChat => '对话';
+
+  @override
+  String get aiReverseTabAnalysis => '分析';
+
+  @override
+  String get aiReverseOpenAnalysis => 'APK目录';
+
+  @override
+  String get aiReverseBackToChat => '返回对话';
+
+  @override
   String get aiAssistantTitle => '我是你的 AI 逆向助手';
 
   @override

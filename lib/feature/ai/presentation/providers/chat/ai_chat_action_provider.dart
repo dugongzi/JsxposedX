@@ -55,8 +55,12 @@ AiChatActionRepository aiChatActionRepository(Ref ref) {
 @riverpod
 class AiChatAction extends _$AiChatAction {
   bool _isDisposed = false;
+  bool _stopRequested = false;
   final StreamController<String> _streamingContentController =
       StreamController<String>.broadcast();
+  StreamSubscription? _activeResponseSubscription;
+  Completer<_CollectedAssistantResponse>? _activeResponseCompleter;
+  String _latestStreamingContent = '';
 
   Stream<String> get streamingContentStream =>
       _streamingContentController.stream;
@@ -66,6 +70,7 @@ class AiChatAction extends _$AiChatAction {
     _isDisposed = false;
     ref.onDispose(() {
       _isDisposed = true;
+      _activeResponseSubscription?.cancel();
       _streamingContentController.close();
     });
     Future.microtask(() {
@@ -238,6 +243,7 @@ class AiChatAction extends _$AiChatAction {
     if (text.trim().isEmpty || state.isStreaming) {
       return;
     }
+    _stopRequested = false;
 
     if (state.currentSessionId == null) {
       await createSession(
@@ -289,6 +295,7 @@ class AiChatAction extends _$AiChatAction {
     );
 
     try {
+      _latestStreamingContent = '';
       await _runAssistantTurn(
         config: config,
         protocolMessages: protocolMessages,
@@ -362,9 +369,12 @@ class AiChatAction extends _$AiChatAction {
     }
 
     if (response.issue == AiResponseIssue.partialResponse) {
+      final partialContent = response.content.isEmpty
+          ? (response.errorMessage ?? 'AI 响应中断，内容可能不完整。')
+          : response.content;
       _updateDisplayMessage(
         placeholderId,
-        content: response.content,
+        content: partialContent,
         isError: true,
       );
       state = state.copyWith(
@@ -441,6 +451,16 @@ class AiChatAction extends _$AiChatAction {
         .map(AiToolCall.fromJson)
         .toList(growable: false);
     for (final call in parsedCalls) {
+      if (_stopRequested) {
+        state = state.copyWith(
+          isStreaming: false,
+          error: '已停止生成。',
+          lastResponseIssue: AiResponseIssue.partialResponse,
+        );
+        await _saveChatHistory();
+        return;
+      }
+
       final bubbleId = const Uuid().v4();
       _appendDisplayMessage(
         AiMessage(
@@ -458,6 +478,16 @@ class AiChatAction extends _$AiChatAction {
         content:
             '${result.success ? '✅' : '❌'} `${call.name}`:\n\n${result.content}',
       );
+
+      if (_stopRequested) {
+        state = state.copyWith(
+          isStreaming: false,
+          error: '已停止生成。',
+          lastResponseIssue: AiResponseIssue.partialResponse,
+        );
+        await _saveChatHistory();
+        return;
+      }
 
       nextProtocolMessages = [
         ...state.protocolMessages,
@@ -489,6 +519,15 @@ class AiChatAction extends _$AiChatAction {
     }
 
     await _saveChatHistory();
+
+    if (_stopRequested) {
+      state = state.copyWith(
+        isStreaming: false,
+        error: '已停止生成。',
+        lastResponseIssue: AiResponseIssue.partialResponse,
+      );
+      return;
+    }
 
     final newPlaceholder = AiMessage(
       id: const Uuid().v4(),
@@ -522,73 +561,122 @@ class AiChatAction extends _$AiChatAction {
     final contentBuffer = StringBuffer();
     List<Map<String, dynamic>>? toolCalls;
     var sawChunk = false;
+    final completer = Completer<_CollectedAssistantResponse>();
+    _activeResponseCompleter = completer;
+    _latestStreamingContent = '';
 
     try {
-      await for (final chunk in stream) {
-        if (_isDisposed) {
-          break;
-        }
+      _activeResponseSubscription = stream.listen(
+        (chunk) {
+          if (_isDisposed) {
+            return;
+          }
 
-        sawChunk = true;
-        if (chunk.hasToolCalls) {
-          toolCalls = chunk.toolCalls;
-          continue;
-        }
+          sawChunk = true;
+          if (chunk.hasToolCalls) {
+            toolCalls = chunk.toolCalls;
+            return;
+          }
 
-        if (chunk.content.isNotEmpty) {
-          contentBuffer.write(chunk.content);
-          _pushStreamingContent(contentBuffer.toString());
-        }
+          if (chunk.content.isNotEmpty) {
+            contentBuffer.write(chunk.content);
+            _latestStreamingContent = contentBuffer.toString();
+            _pushStreamingContent(_latestStreamingContent);
+          }
+        },
+        onError: (Object error, StackTrace stackTrace) {
+          if (completer.isCompleted) {
+            return;
+          }
+
+          final bufferedContent = contentBuffer.toString();
+          if (error is PlatformException) {
+            if (bufferedContent.isNotEmpty) {
+              completer.complete(
+                _CollectedAssistantResponse(
+                  content: bufferedContent,
+                  issue: AiResponseIssue.partialResponse,
+                  errorMessage: error.message ?? 'AI 响应中断。',
+                ),
+              );
+              return;
+            }
+            completer.complete(
+              _CollectedAssistantResponse(
+                content: bufferedContent,
+                issue: _classifyPlatformIssue(error),
+                errorMessage: error.message,
+              ),
+            );
+            return;
+          }
+
+          if (bufferedContent.isNotEmpty) {
+            completer.complete(
+              _CollectedAssistantResponse(
+                content: bufferedContent,
+                issue: AiResponseIssue.partialResponse,
+                errorMessage: error.toString(),
+              ),
+            );
+            return;
+          }
+
+          completer.complete(
+            _CollectedAssistantResponse(
+              content: '',
+              issue: AiResponseIssue.networkError,
+              errorMessage: error.toString(),
+            ),
+          );
+        },
+        onDone: () {
+          if (completer.isCompleted) {
+            return;
+          }
+
+          final fullContent = contentBuffer.toString();
+          if (!sawChunk &&
+              (toolCalls == null || (toolCalls?.isEmpty ?? true)) &&
+              fullContent.isEmpty) {
+            completer.complete(
+              const _CollectedAssistantResponse(
+                content: '',
+                issue: AiResponseIssue.emptyResponse,
+              ),
+            );
+            return;
+          }
+
+          if (fullContent.isEmpty &&
+              (toolCalls == null || (toolCalls?.isEmpty ?? true))) {
+            completer.complete(
+              const _CollectedAssistantResponse(
+                content: '',
+                issue: AiResponseIssue.emptyResponse,
+              ),
+            );
+            return;
+          }
+
+          completer.complete(
+            _CollectedAssistantResponse(
+              content: fullContent,
+              toolCalls: toolCalls,
+            ),
+          );
+        },
+        cancelOnError: false,
+      );
+
+      return await completer.future;
+    } finally {
+      if (identical(_activeResponseCompleter, completer)) {
+        _activeResponseCompleter = null;
       }
-    } on PlatformException catch (error) {
-      if (contentBuffer.toString().isNotEmpty) {
-        return _CollectedAssistantResponse(
-          content: contentBuffer.toString(),
-          issue: AiResponseIssue.partialResponse,
-          errorMessage: error.message ?? 'AI 响应中断。',
-        );
-      }
-      return _CollectedAssistantResponse(
-        content: contentBuffer.toString(),
-        issue: _classifyPlatformIssue(error),
-        errorMessage: error.message,
-      );
-    } catch (error) {
-      if (contentBuffer.toString().isNotEmpty) {
-        return _CollectedAssistantResponse(
-          content: contentBuffer.toString(),
-          issue: AiResponseIssue.partialResponse,
-          errorMessage: error.toString(),
-        );
-      }
-      return _CollectedAssistantResponse(
-        content: '',
-        issue: AiResponseIssue.networkError,
-        errorMessage: error.toString(),
-      );
+      _activeResponseSubscription = null;
+      _latestStreamingContent = '';
     }
-
-    final fullContent = contentBuffer.toString();
-    if (!sawChunk &&
-        (toolCalls == null || toolCalls.isEmpty) &&
-        fullContent.isEmpty) {
-      return const _CollectedAssistantResponse(
-        content: '',
-        issue: AiResponseIssue.emptyResponse,
-      );
-    }
-
-    if (fullContent.isEmpty && (toolCalls == null || toolCalls.isEmpty)) {
-      return const _CollectedAssistantResponse(
-        content: '',
-        issue: AiResponseIssue.emptyResponse,
-      );
-    }
-
-    return _CollectedAssistantResponse(
-      content: fullContent,
-      toolCalls: toolCalls,
-    );
   }
 
   List<AiMessage> _buildRequestMessages(
@@ -674,17 +762,33 @@ class AiChatAction extends _$AiChatAction {
       return;
     }
 
-    var nextDisplayMessages = List<AiMessage>.from(state.messages);
-    if (displayMessage.role == 'assistant') {
-      nextDisplayMessages.removeAt(displayIndex);
+    var retryUserDisplayIndex = displayIndex;
+    if (displayMessage.role != 'user') {
+      for (var index = displayIndex - 1; index >= 0; index--) {
+        if (state.messages[index].role == 'user') {
+          retryUserDisplayIndex = index;
+          break;
+        }
+      }
     }
 
-    var nextProtocolMessages = List<AiMessage>.from(state.protocolMessages);
-    if (nextProtocolMessages.isNotEmpty &&
-        nextProtocolMessages.last.role == 'user' &&
-        nextProtocolMessages.last.content == retryText) {
-      nextProtocolMessages.removeLast();
+    var retryUserProtocolIndex = state.protocolMessages.length;
+    for (var index = state.protocolMessages.length - 1; index >= 0; index--) {
+      final candidate = state.protocolMessages[index];
+      if (candidate.role == 'user' && candidate.content == retryText) {
+        retryUserProtocolIndex = index;
+        break;
+      }
     }
+
+    final nextDisplayMessages = retryUserDisplayIndex <= 0
+        ? const <AiMessage>[]
+        : List<AiMessage>.from(state.messages.sublist(0, retryUserDisplayIndex));
+    final nextProtocolMessages = retryUserProtocolIndex <= 0
+        ? const <AiMessage>[]
+        : List<AiMessage>.from(
+            state.protocolMessages.sublist(0, retryUserProtocolIndex),
+          );
 
     state = state.copyWith(
       messages: List<AiMessage>.unmodifiable(nextDisplayMessages),
@@ -693,6 +797,17 @@ class AiChatAction extends _$AiChatAction {
       lastResponseIssue: null,
     );
     await send(retryText);
+  }
+
+  Future<void> retryLastTurn() async {
+    if (state.isStreaming || !state.hasUserMessages) {
+      return;
+    }
+
+    final lastUserMessage = state.messages.lastWhere(
+      (message) => message.role == 'user',
+    );
+    await retryByMessageId(lastUserMessage.id);
   }
 
   @Deprecated('Use retryByMessageId instead.')
@@ -742,6 +857,43 @@ class AiChatAction extends _$AiChatAction {
 
   void resetStreaming() {
     state = state.copyWith(isStreaming: false);
+  }
+
+  Future<void> stopStreaming() async {
+    if (!state.isStreaming) {
+      return;
+    }
+
+    _stopRequested = true;
+    final partialContent = _latestStreamingContent;
+    await _activeResponseSubscription?.cancel();
+    _activeResponseSubscription = null;
+    _clearStreamingContent();
+
+    final completer = _activeResponseCompleter;
+    if (completer != null && !completer.isCompleted) {
+      completer.complete(
+        _CollectedAssistantResponse(
+          content: partialContent,
+          issue: AiResponseIssue.partialResponse,
+          errorMessage: '已停止生成。',
+        ),
+      );
+    } else {
+      _appendDisplayMessage(
+        AiMessage(
+          id: const Uuid().v4(),
+          role: 'assistant',
+          content: '已停止生成。',
+          isError: true,
+        ),
+      );
+      state = state.copyWith(
+        isStreaming: false,
+        error: '已停止生成。',
+        lastResponseIssue: AiResponseIssue.partialResponse,
+      );
+    }
   }
 
   Future<String> testConnection(AiConfig config) {

@@ -8,11 +8,13 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 class AiQuickActions extends ConsumerWidget {
   final String packageName;
   final String? systemPrompt;
+  final VoidCallback? onOpenAnalysis;
 
   const AiQuickActions({
     super.key,
     required this.packageName,
     this.systemPrompt,
+    this.onOpenAnalysis,
   });
 
   @override
@@ -32,6 +34,13 @@ class AiQuickActions extends ConsumerWidget {
         scrollDirection: Axis.horizontal,
         padding: EdgeInsets.symmetric(horizontal: 16.w),
         children: [
+          if (onOpenAnalysis != null)
+            _QuickActionTile(
+              icon: Icons.inventory_2_outlined,
+              label: context.l10n.aiReverseOpenAnalysis,
+              color: Colors.blueGrey,
+              onTap: onOpenAnalysis!,
+            ),
           _QuickActionTile(
             icon: Icons.description_outlined,
             label: context.l10n.aiAnalyzeManifest,

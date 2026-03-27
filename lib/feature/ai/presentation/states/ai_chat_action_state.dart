@@ -48,6 +48,11 @@ class AiChatActionState {
       sessionInitState != AiSessionInitState.initializing &&
       sessionInitState != AiSessionInitState.failed;
 
+  bool get hasUserMessages => messages.any((message) => message.role == 'user');
+
+  bool get canRetryLastTurn =>
+      !isStreaming && hasUserMessages && lastResponseIssue != null;
+
   AiChatActionState copyWith({
     List<AiMessage>? messages,
     List<AiMessage>? protocolMessages,

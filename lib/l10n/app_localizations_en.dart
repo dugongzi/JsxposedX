@@ -536,6 +536,46 @@ class AppLocalizationsEn extends AppLocalizations {
   String get aiChatInputHint => 'Ask me anything...';
 
   @override
+  String get aiReverseSessionInitializingHint =>
+      'Reverse session is initializing…';
+
+  @override
+  String get aiReverseSessionInitFailedHint =>
+      'Reverse session initialization failed. Sending is unavailable.';
+
+  @override
+  String get aiReverseSessionInitializingBanner =>
+      'Reverse session is initializing. Sending is disabled until it completes.';
+
+  @override
+  String get aiReverseSessionInitFailedBanner =>
+      'Reverse session initialization failed. Sending is currently unavailable.';
+
+  @override
+  String get aiStopGeneration => 'Stop generation';
+
+  @override
+  String get aiRetryLastTurn => 'Retry last turn';
+
+  @override
+  String get aiRetryInitialization => 'Retry initialization';
+
+  @override
+  String get aiUnavailableToSend => 'Unavailable';
+
+  @override
+  String get aiReverseTabChat => 'Chat';
+
+  @override
+  String get aiReverseTabAnalysis => 'Analysis';
+
+  @override
+  String get aiReverseOpenAnalysis => 'APK Files';
+
+  @override
+  String get aiReverseBackToChat => 'Back to chat';
+
+  @override
   String get aiAssistantTitle => 'I am your AI Reverse Assistant';
 
   @override
