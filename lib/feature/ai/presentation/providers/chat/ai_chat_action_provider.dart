@@ -332,65 +332,90 @@ class AiChatAction extends _$AiChatAction {
       return;
     }
 
-    final userMessage = AiMessage(
-      id: const Uuid().v4(),
-      role: 'user',
-      content: text,
-    );
-    final placeholder = AiMessage(
-      id: const Uuid().v4(),
-      role: 'assistant',
-      content: '',
-    );
-
-    final protocolMessages = [...state.protocolMessages, userMessage];
-    final displayMessages = [...state.messages, userMessage, placeholder];
-    final contextAssembly = _assembleContext(
-      protocolMessages: protocolMessages,
-      previousContext: state.sessionContext,
+    await _beginUserTurn(
       config: config,
-      recoveryMode: AiChatRecoveryMode.retryLastTurn,
-    );
-    final checkpoint = AiChatCheckpoint(
-      createdAtIso: DateTime.now().toIso8601String(),
-      lastUserMessage: userMessage,
-      protocolMessages: contextAssembly.sanitizedProtocolMessages,
-      sessionMemorySnapshot: contextAssembly.context.sessionMemory,
-      taskStateSnapshot: contextAssembly.context.taskState,
-      toolTraceSnapshot: contextAssembly.context.toolTrace,
-      recoveryMode: AiChatRecoveryMode.retryLastTurn,
-    );
-    state = state.copyWith(
-      protocolMessages: List<AiMessage>.unmodifiable(
-        contextAssembly.sanitizedProtocolMessages,
+      userMessage: AiMessage(
+        id: const Uuid().v4(),
+        role: 'user',
+        content: text,
       ),
-      messages: List<AiMessage>.unmodifiable(displayMessages),
-      isStreaming: true,
-      error: null,
-      lastResponseIssue: null,
-      sessionContext: contextAssembly.context.copyWith(checkpoint: checkpoint),
-      contextStats: contextAssembly.context.stats,
-      contextVersion: contextAssembly.context.version,
+      baseProtocolMessages: state.protocolMessages,
+      retriesRemaining: 2,
+      recoveryMode: AiChatRecoveryMode.retryLastTurn,
     );
-    await _saveChatHistory();
+  }
 
-    try {
-      _latestStreamingContent = '';
-      await _runAssistantTurn(
-        config: config,
-        protocolMessages: contextAssembly.sanitizedProtocolMessages,
-        placeholderId: placeholder.id,
-        toolsJson: _buildToolsJson(),
-        retriesRemaining: 2,
-        recoveryMode: AiChatRecoveryMode.retryLastTurn,
-      );
-    } catch (error) {
-      _markDisplayMessageError(
-        placeholder.id,
-        '发送失败：${_describeThrownError(error)}',
-        AiResponseIssue.networkError,
-      );
+  Future<void> editUserMessageAndResend({
+    required String messageId,
+    required String updatedText,
+  }) async {
+    if (state.isStreaming) {
+      return;
     }
+
+    final config = ref.read(aiConfigProvider).value;
+    if (config == null) {
+      state = state.copyWith(error: 'AI 配置未加载', isStreaming: false);
+      return;
+    }
+
+    final protocolIndex = state.protocolMessages.indexWhere(
+      (message) => message.id == messageId && message.role == 'user',
+    );
+    if (protocolIndex == -1) {
+      return;
+    }
+
+    final originalMessage = state.protocolMessages[protocolIndex];
+    if (!AiMultimodalMessageCodec.canEditText(originalMessage.content)) {
+      return;
+    }
+
+    final nextContent = AiMultimodalMessageCodec.replaceUserText(
+      originalMessage.content,
+      updatedText,
+    );
+    if (nextContent.trim().isEmpty) {
+      return;
+    }
+    if (AiMultimodalMessageCodec.hasImageAttachments(nextContent) &&
+        _looksExplicitlyTextOnlyModel(config.moduleName)) {
+      state = state.copyWith(
+        error: '当前模型不支持图片理解，请切换到支持视觉的模型后再发送图片。',
+        isStreaming: false,
+        lastResponseIssue: AiResponseIssue.parseError,
+      );
+      return;
+    }
+
+    final updatedUserMessage = originalMessage.copyWith(content: nextContent);
+    final baseProtocolMessages = state.protocolMessages
+        .take(protocolIndex)
+        .toList(growable: false);
+    await _beginUserTurn(
+      config: config,
+      userMessage: updatedUserMessage,
+      baseProtocolMessages: baseProtocolMessages,
+      retriesRemaining: 2,
+      recoveryMode: AiChatRecoveryMode.retryLastTurn,
+    );
+  }
+
+  void revealMessage(String messageId) {
+    final index = state.messages.indexWhere((message) => message.id == messageId);
+    if (index == -1) {
+      return;
+    }
+    final requiredVisibleCount = state.messages.length - index;
+    if (requiredVisibleCount <= state.visibleMessageCount) {
+      return;
+    }
+    state = state.copyWith(
+      visibleMessageCount: requiredVisibleCount.clamp(
+        0,
+        state.totalVisibleMessagesCount,
+      ),
+    );
   }
 
   Future<void> _runAssistantTurn({
@@ -1205,6 +1230,72 @@ class AiChatAction extends _$AiChatAction {
     return protocolMessages
         .where((message) => message.shouldDisplayInChatList)
         .toList(growable: false);
+  }
+
+  Future<void> _beginUserTurn({
+    required AiConfig config,
+    required AiMessage userMessage,
+    required List<AiMessage> baseProtocolMessages,
+    required int retriesRemaining,
+    required AiChatRecoveryMode recoveryMode,
+  }) async {
+    final placeholder = AiMessage(
+      id: const Uuid().v4(),
+      role: 'assistant',
+      content: '',
+    );
+    final protocolMessages = [...baseProtocolMessages, userMessage];
+    final contextAssembly = _assembleContext(
+      protocolMessages: protocolMessages,
+      previousContext: state.sessionContext,
+      config: config,
+      recoveryMode: recoveryMode,
+    );
+    final checkpoint = AiChatCheckpoint(
+      createdAtIso: DateTime.now().toIso8601String(),
+      lastUserMessage: userMessage,
+      protocolMessages: contextAssembly.sanitizedProtocolMessages,
+      sessionMemorySnapshot: contextAssembly.context.sessionMemory,
+      taskStateSnapshot: contextAssembly.context.taskState,
+      toolTraceSnapshot: contextAssembly.context.toolTrace,
+      recoveryMode: recoveryMode,
+    );
+    state = state.copyWith(
+      protocolMessages: List<AiMessage>.unmodifiable(
+        contextAssembly.sanitizedProtocolMessages,
+      ),
+      messages: List<AiMessage>.unmodifiable([
+        ..._buildDisplayMessagesFromProtocol(
+          contextAssembly.sanitizedProtocolMessages,
+        ),
+        placeholder,
+      ]),
+      isStreaming: true,
+      error: null,
+      lastResponseIssue: null,
+      sessionContext: contextAssembly.context.copyWith(checkpoint: checkpoint),
+      contextStats: contextAssembly.context.stats,
+      contextVersion: contextAssembly.context.version,
+    );
+    await _saveChatHistory();
+
+    try {
+      _latestStreamingContent = '';
+      await _runAssistantTurn(
+        config: config,
+        protocolMessages: contextAssembly.sanitizedProtocolMessages,
+        placeholderId: placeholder.id,
+        toolsJson: _buildToolsJson(),
+        retriesRemaining: retriesRemaining,
+        recoveryMode: recoveryMode,
+      );
+    } catch (error) {
+      _markDisplayMessageError(
+        placeholder.id,
+        '发送失败：${_describeThrownError(error)}',
+        AiResponseIssue.networkError,
+      );
+    }
   }
 
   Future<List<AiMessage>> _prepareProtocolMessages(

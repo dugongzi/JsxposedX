@@ -135,6 +135,39 @@ class AiMultimodalMessageCodec {
     return content.startsWith(_prefix);
   }
 
+  static bool hasAttachments(String content) {
+    final payload = tryParse(content);
+    if (payload == null) {
+      return false;
+    }
+    return payload.attachments.isNotEmpty;
+  }
+
+  static bool canEditText(String content) {
+    final payload = tryParse(content);
+    if (payload == null) {
+      return content.trim().isNotEmpty;
+    }
+    return payload.text.trim().isNotEmpty;
+  }
+
+  static String extractEditableText(String content) {
+    final payload = tryParse(content);
+    if (payload == null) {
+      return content;
+    }
+    return payload.text;
+  }
+
+  static String replaceUserText(String content, String nextText) {
+    final normalizedText = nextText.trim();
+    final payload = tryParse(content);
+    if (payload == null) {
+      return normalizedText;
+    }
+    return '$_prefix${jsonEncode(payload.copyWith(text: normalizedText).toJson())}';
+  }
+
   static AiMultimodalParsedMessage? parse(String content) {
     final payload = tryParse(content);
     if (payload == null) {

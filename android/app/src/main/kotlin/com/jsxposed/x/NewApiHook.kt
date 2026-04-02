@@ -1,6 +1,7 @@
 package com.jsxposed.x
 
 import android.annotation.SuppressLint
+import android.content.pm.ApplicationInfo
 import com.jsxposed.x.core.utils.log.LogX
 import com.jsxposed.x.feature.hook.ModuleInterfaceParamWrapper
 import com.jsxposed.x.feature.hook.lpparamProcessName
@@ -10,20 +11,27 @@ import io.github.libxposed.api.XposedModule
 import io.github.libxposed.api.XposedModuleInterface
 import top.sacz.xphelper.XpHelper
 
-class NewApiHook(base: XposedInterface, param: XposedModuleInterface.ModuleLoadedParam) :
-    XposedModule(base, param) {
+class NewApiHook(
+    base: XposedInterface,
+    param: XposedModuleInterface.ModuleLoadedParam
+) : XposedModule(base, param) {
 
     private val mainHook = MainHook()
 
     init {
         instance = this
         lpparamProcessName = param.processName
-        try {
-            val suparam = createStartupParam(this.applicationInfo.sourceDir)
-            XpHelper.initZygote(suparam)
 
-        } catch (e: Exception) {
-
+        runCatching {
+            val modulePath = resolveModulePathCompat()
+            if (modulePath.isNotBlank()) {
+                val startupParam = createStartupParam(modulePath)
+                XpHelper.initZygote(startupParam)
+            } else {
+                LogX.w("NewApiHook", "module path is empty, skip XpHelper.initZygote")
+            }
+        }.onFailure {
+            LogX.e("NewApiHook", "init failed: ${it.message}")
         }
     }
 
@@ -48,5 +56,20 @@ class NewApiHook(base: XposedInterface, param: XposedModuleInterface.ModuleLoade
         fieldModulePath.set(instance, modulePath)
         return instance
     }
-}
 
+    private fun resolveModulePathCompat(): String {
+        val appInfo = invokeAppInfoMethod("getModuleApplicationInfo")
+            ?: invokeAppInfoMethod("getApplicationInfo")
+        return appInfo?.sourceDir.orEmpty()
+    }
+
+    private fun invokeAppInfoMethod(methodName: String): ApplicationInfo? {
+        return runCatching {
+            val method = this::class.java.methods.firstOrNull {
+                it.name == methodName && it.parameterCount == 0
+            } ?: return null
+            method.isAccessible = true
+            method.invoke(this) as? ApplicationInfo
+        }.getOrNull()
+    }
+}
