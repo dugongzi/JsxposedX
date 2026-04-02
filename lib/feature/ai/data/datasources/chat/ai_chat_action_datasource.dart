@@ -7,6 +7,7 @@ import 'package:JsxposedX/core/providers/pinia_provider.dart';
 import 'package:JsxposedX/feature/ai/data/models/ai_message_dto.dart';
 import 'package:JsxposedX/feature/ai/data/models/ai_session_dto.dart';
 import 'package:JsxposedX/feature/ai/domain/models/ai_chat_session_context.dart';
+import 'package:JsxposedX/feature/ai/domain/services/ai_multimodal_message_codec.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/services.dart';
 
@@ -133,7 +134,7 @@ class AiChatActionDatasource {
   }) async* {
     final request = <String, dynamic>{
       'model': config.moduleName,
-      'messages': messages.map((message) => message.toJson()).toList(),
+      'messages': messages.map(_mapOpenAiMessage).toList(),
       'stream': true,
       'temperature': config.temperature,
       'max_tokens': config.maxToken,
@@ -156,7 +157,7 @@ class AiChatActionDatasource {
         ),
       );
 
-      _ensureSuccessfulResponse(response);
+      await _ensureSuccessfulResponse(response);
 
       final stream = response.data.stream as Stream<List<int>>;
       var buffered = '';
@@ -256,10 +257,9 @@ class AiChatActionDatasource {
         }
       }
     } on DioException catch (error) {
-      throw PlatformException(
-        code: error.type.name,
-        message: error.message ?? 'AI request failed',
-        details: error.response?.data,
+      throw await _buildPlatformExceptionFromDio(
+        error,
+        fallbackMessage: 'AI request failed',
       );
     } on PlatformException {
       rethrow;
@@ -317,7 +317,7 @@ class AiChatActionDatasource {
         ),
       );
 
-      _ensureSuccessfulResponse(response);
+      await _ensureSuccessfulResponse(response);
 
       final stream = response.data.stream as Stream<List<int>>;
       var buffered = '';
@@ -486,10 +486,9 @@ class AiChatActionDatasource {
         );
       }
     } on DioException catch (error) {
-      throw PlatformException(
-        code: error.type.name,
-        message: error.message ?? 'AI request failed',
-        details: error.response?.data,
+      throw await _buildPlatformExceptionFromDio(
+        error,
+        fallbackMessage: 'AI request failed',
       );
     } on PlatformException {
       rethrow;
@@ -561,7 +560,7 @@ class AiChatActionDatasource {
         ),
       );
 
-      _ensureSuccessfulResponse(response);
+      await _ensureSuccessfulResponse(response);
 
       final stream = response.data.stream as Stream<List<int>>;
       await for (final chunk in stream) {
@@ -582,10 +581,9 @@ class AiChatActionDatasource {
       );
     } on DioException catch (error) {
       stopwatch.stop();
-      throw PlatformException(
-        code: error.type.name,
-        message: error.message ?? 'Connection failed',
-        details: error.response?.data,
+      throw await _buildPlatformExceptionFromDio(
+        error,
+        fallbackMessage: 'Connection failed',
       );
     } on PlatformException {
       rethrow;
@@ -598,17 +596,79 @@ class AiChatActionDatasource {
     }
   }
 
-  void _ensureSuccessfulResponse(Response<dynamic> response) {
+  Future<void> _ensureSuccessfulResponse(Response<dynamic> response) async {
     final statusCode = response.statusCode;
     if (statusCode != null && statusCode >= 200 && statusCode < 300) {
       return;
     }
 
+    final details = await _extractResponseData(response.data);
+
     throw PlatformException(
       code: 'http_error',
       message: 'HTTP ${response.statusCode}: ${response.statusMessage ?? 'Unknown error'}',
-      details: response.data,
+      details: details,
     );
+  }
+
+  Future<PlatformException> _buildPlatformExceptionFromDio(
+    DioException error, {
+    required String fallbackMessage,
+  }) async {
+    final details = await _extractResponseData(error.response?.data);
+    final resolvedMessage = _resolveDioMessage(
+      error: error,
+      fallbackMessage: fallbackMessage,
+      details: details,
+    );
+    return PlatformException(
+      code: error.type.name,
+      message: resolvedMessage,
+      details: details,
+    );
+  }
+
+  String _resolveDioMessage({
+    required DioException error,
+    required String fallbackMessage,
+    required Object? details,
+  }) {
+    final baseMessage = error.message?.trim();
+    final detailText = details?.toString().trim() ?? '';
+    if (baseMessage == null || baseMessage.isEmpty) {
+      return detailText.isEmpty ? fallbackMessage : detailText;
+    }
+    if (detailText.isEmpty) {
+      return baseMessage;
+    }
+    if (baseMessage.contains(detailText)) {
+      return baseMessage;
+    }
+    return '$baseMessage\n$detailText';
+  }
+
+  Future<Object?> _extractResponseData(Object? data) async {
+    if (data == null) {
+      return null;
+    }
+    if (data is ResponseBody) {
+      final bytes = await data.stream.expand((chunk) => chunk).toList();
+      final decodedText = utf8.decode(bytes, allowMalformed: true).trim();
+      if (decodedText.isEmpty) {
+        return null;
+      }
+      final decodedJson = _tryDecodeJson(decodedText);
+      return decodedJson ?? decodedText;
+    }
+    if (data is List<int>) {
+      final decodedText = utf8.decode(data, allowMalformed: true).trim();
+      if (decodedText.isEmpty) {
+        return null;
+      }
+      final decodedJson = _tryDecodeJson(decodedText);
+      return decodedJson ?? decodedText;
+    }
+    return data;
   }
 
   dynamic _tryDecodeJson(String data) {
@@ -743,10 +803,36 @@ class AiChatActionDatasource {
       };
     }
 
+    if (message.role == 'user' &&
+        AiMultimodalMessageCodec.isEncoded(message.content)) {
+      return {
+        'role': 'user',
+        'content': AiMultimodalMessageCodec.toAnthropicContent(
+          message.content,
+          isZh: true,
+        ),
+      };
+    }
+
     return {
       'role': message.role,
       'content': message.content,
     };
+  }
+
+  Map<String, dynamic> _mapOpenAiMessage(AiMessageDto message) {
+    if (message.role == 'user' &&
+        AiMultimodalMessageCodec.isEncoded(message.content)) {
+      return {
+        'role': message.role,
+        'content': AiMultimodalMessageCodec.toOpenAiContent(
+          message.content,
+          isZh: true,
+        ),
+      };
+    }
+
+    return message.toJson();
   }
 
   Map<String, dynamic> _normalizeAnthropicTool(Map<String, dynamic> tool) {

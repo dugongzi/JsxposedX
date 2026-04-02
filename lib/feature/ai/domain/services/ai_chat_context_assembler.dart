@@ -1,6 +1,7 @@
 import 'package:JsxposedX/core/models/ai_message.dart';
 import 'package:JsxposedX/feature/ai/domain/models/ai_chat_session_context.dart';
 import 'package:JsxposedX/feature/ai/domain/services/ai_chat_context_budget_estimator.dart';
+import 'package:JsxposedX/feature/ai/domain/services/ai_multimodal_message_codec.dart';
 import 'package:uuid/uuid.dart';
 
 class AiChatContextAssembler {
@@ -280,7 +281,7 @@ class AiChatContextAssembler {
 
   void _ingestMessage(_MemoryAccumulator memory, AiMessage message) {
     final normalized = _truncate(
-      message.content.replaceAll('\r', ' ').replaceAll('\n', ' ').trim(),
+      _semanticContent(message).replaceAll('\r', ' ').replaceAll('\n', ' ').trim(),
       180,
     );
     if (normalized.isEmpty) {
@@ -420,25 +421,25 @@ class AiChatContextAssembler {
     for (var index = recentMessages.length - 1; index >= 0; index--) {
       final message = recentMessages[index];
       if (lastUserGoal == null && message.role == 'user') {
-        lastUserGoal = _truncate(message.content.trim(), 180);
+        lastUserGoal = _truncate(_semanticContent(message).trim(), 180);
       }
       if (recentSuccessStep == null &&
           message.role == 'assistant' &&
           !message.isError &&
           !message.hasToolCalls &&
-          message.content.trim().isNotEmpty) {
-        recentSuccessStep = _truncate(message.content.trim(), 180);
+          _semanticContent(message).trim().isNotEmpty) {
+        recentSuccessStep = _truncate(_semanticContent(message).trim(), 180);
       }
       if (currentStep == null &&
           message.role == 'assistant' &&
-          message.content.trim().isNotEmpty &&
+          _semanticContent(message).trim().isNotEmpty &&
           !message.hasToolCalls) {
-        currentStep = _truncate(message.content.trim(), 180);
+        currentStep = _truncate(_semanticContent(message).trim(), 180);
       }
       if (nextStep == null &&
           message.role == 'user' &&
-          message.content.trim().isNotEmpty) {
-        nextStep = _truncate(message.content.trim(), 180);
+          _semanticContent(message).trim().isNotEmpty) {
+        nextStep = _truncate(_semanticContent(message).trim(), 180);
       }
     }
 
@@ -583,6 +584,16 @@ class AiChatContextAssembler {
       return text;
     }
     return '${text.substring(0, maxLength)}...';
+  }
+
+  String _semanticContent(AiMessage message) {
+    if (message.role != 'user') {
+      return message.content;
+    }
+    return AiMultimodalMessageCodec.toSemanticText(
+      message.content,
+      isZh: true,
+    );
   }
 }
 

@@ -15,6 +15,7 @@ import 'package:JsxposedX/feature/ai/domain/models/ai_thinking_markup.dart';
 import 'package:JsxposedX/feature/ai/domain/models/ai_tool_call.dart';
 import 'package:JsxposedX/feature/ai/domain/repositories/chat/ai_chat_action_repository.dart';
 import 'package:JsxposedX/feature/ai/domain/services/ai_chat_context_assembler.dart';
+import 'package:JsxposedX/feature/ai/domain/services/ai_multimodal_message_codec.dart';
 import 'package:JsxposedX/feature/ai/domain/services/prompt_builder.dart';
 import 'package:JsxposedX/feature/ai/domain/services/tool_executor.dart';
 import 'package:JsxposedX/feature/ai/presentation/providers/chat/ai_chat_query_provider.dart';
@@ -321,12 +322,22 @@ class AiChatAction extends _$AiChatAction {
       state = state.copyWith(error: 'AI 配置未加载', isStreaming: false);
       return;
     }
+    if (AiMultimodalMessageCodec.hasImageAttachments(text) &&
+        _looksExplicitlyTextOnlyModel(config.moduleName)) {
+      state = state.copyWith(
+        error: '当前模型不支持图片理解，请切换到支持视觉的模型后再发送图片。',
+        isStreaming: false,
+        lastResponseIssue: AiResponseIssue.parseError,
+      );
+      return;
+    }
 
     final userMessage = AiMessage(
       id: const Uuid().v4(),
       role: 'user',
       content: text,
     );
+    final displayUserMessage = _buildDisplayMessage(userMessage);
     final placeholder = AiMessage(
       id: const Uuid().v4(),
       role: 'assistant',
@@ -334,7 +345,7 @@ class AiChatAction extends _$AiChatAction {
     );
 
     final protocolMessages = [...state.protocolMessages, userMessage];
-    final displayMessages = [...state.messages, userMessage, placeholder];
+    final displayMessages = [...state.messages, displayUserMessage, placeholder];
     final contextAssembly = _assembleContext(
       protocolMessages: protocolMessages,
       previousContext: state.sessionContext,
@@ -973,8 +984,10 @@ class AiChatAction extends _$AiChatAction {
 
     final updatedUserMessage = continuationProtocolMessages[lastUserIndex]
         .copyWith(
-          content:
-              '${continuationProtocolMessages[lastUserIndex].content}\n\n${_buildContinuationPrompt(partialContent)}',
+          content: AiMultimodalMessageCodec.appendUserText(
+            continuationProtocolMessages[lastUserIndex].content,
+            _buildContinuationPrompt(partialContent),
+          ),
         );
     continuationProtocolMessages[lastUserIndex] = updatedUserMessage;
     final displayMessages = [
@@ -1226,7 +1239,21 @@ class AiChatAction extends _$AiChatAction {
   ) {
     return protocolMessages
         .where((message) => message.shouldDisplayInChatList)
+        .map(_buildDisplayMessage)
         .toList(growable: false);
+  }
+
+  AiMessage _buildDisplayMessage(AiMessage message) {
+    if (message.role != 'user') {
+      return message;
+    }
+
+    return message.copyWith(
+      content: AiMultimodalMessageCodec.toDisplayText(
+        message.content,
+        isZh: true,
+      ),
+    );
   }
 
   Future<List<AiMessage>> _prepareProtocolMessages(
@@ -1372,11 +1399,12 @@ class AiChatAction extends _$AiChatAction {
     final pendingNotes = <String>[];
 
     for (final message in olderMessages) {
-      if (message.content.trim().isEmpty) {
+      final summaryContent = _summaryContent(message);
+      if (summaryContent.trim().isEmpty) {
         continue;
       }
       final normalized = _truncateForSummary(
-        message.content.replaceAll('\r', ' ').replaceAll('\n', ' ').trim(),
+        summaryContent.replaceAll('\r', ' ').replaceAll('\n', ' ').trim(),
       );
       if (normalized.isEmpty) {
         continue;
@@ -1498,6 +1526,16 @@ class AiChatAction extends _$AiChatAction {
     return '${text.substring(0, 180)}...';
   }
 
+  String _summaryContent(AiMessage message) {
+    if (message.role != 'user') {
+      return message.content;
+    }
+    return AiMultimodalMessageCodec.toSemanticText(
+      message.content,
+      isZh: true,
+    );
+  }
+
   String _buildContinuationPrompt(String partialContent) {
     return '你上一条回答因为网络中断未完成。请从中断处继续，不要重复已经输出的内容。'
         '如果必须衔接，请只补充后续部分。\n\n'
@@ -1545,7 +1583,10 @@ class AiChatAction extends _$AiChatAction {
         continue;
       }
       updatedMessages[index] = candidate.copyWith(
-        content: '${candidate.content}\n\n${_buildContinuationPrompt(partialContent)}',
+        content: AiMultimodalMessageCodec.appendUserText(
+          candidate.content,
+          _buildContinuationPrompt(partialContent),
+        ),
       );
       return List<AiMessage>.unmodifiable(updatedMessages);
     }
@@ -1555,6 +1596,13 @@ class AiChatAction extends _$AiChatAction {
   String _describePlatformException(PlatformException error) {
     final message = error.message?.trim();
     final details = error.details;
+    final combinedText = [
+      if (message != null && message.isNotEmpty) message,
+      if (details != null) details.toString(),
+    ].join('\n');
+    if (_isVisionUnsupportedErrorText(combinedText)) {
+      return '当前模型不支持图片理解，请切换到支持视觉的模型后再发送图片。';
+    }
     if (details == null) {
       return message == null || message.isEmpty ? error.code : message;
     }
@@ -1573,6 +1621,29 @@ class AiChatAction extends _$AiChatAction {
       return detailText;
     }
     return '$message\n$detailText';
+  }
+
+  bool _isVisionUnsupportedErrorText(String text) {
+    final normalized = text.toLowerCase();
+    return normalized.contains('not a vlm') ||
+        normalized.contains('vision language model') ||
+        normalized.contains('text-only prompts') ||
+        normalized.contains('does not support image') ||
+        normalized.contains('model does not support vision') ||
+        normalized.contains('image input is not enabled') ||
+        normalized.contains('multimodal') && normalized.contains('not support');
+  }
+
+  bool _looksExplicitlyTextOnlyModel(String modelName) {
+    final normalized = modelName.toLowerCase();
+    return normalized.contains('embedding') ||
+        normalized.contains('rerank') ||
+        normalized.contains('bge') ||
+        normalized.contains('instruct') ||
+        normalized.contains('text-') ||
+        normalized.contains('coder') ||
+        normalized.contains('claude-2') ||
+        normalized.contains('claude-instant');
   }
 
   String _mergeContinuationContent(String existing, String continuation) {

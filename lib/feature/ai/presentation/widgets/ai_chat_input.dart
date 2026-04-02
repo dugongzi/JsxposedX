@@ -1,11 +1,10 @@
-import 'dart:convert';
-
 import 'package:JsxposedX/common/pages/toast.dart';
 import 'package:JsxposedX/common/widgets/app_bottom_sheet.dart';
 import 'package:JsxposedX/core/extensions/context_extensions.dart';
 import 'package:JsxposedX/core/utils/file_picker_util.dart';
 import 'package:JsxposedX/feature/ai/domain/models/ai_chat_session_context.dart';
 import 'package:JsxposedX/feature/ai/domain/models/ai_session_init_state.dart';
+import 'package:JsxposedX/feature/ai/domain/services/ai_multimodal_message_codec.dart';
 import 'package:JsxposedX/feature/ai/presentation/providers/chat/ai_chat_action_provider.dart';
 import 'package:JsxposedX/feature/ai/presentation/states/ai_chat_action_state.dart';
 import 'package:JsxposedX/feature/ai/presentation/widgets/ai_quick_actions.dart';
@@ -92,14 +91,20 @@ class AiChatInput extends HookConsumerWidget {
         return;
       }
       if (canSend) {
-        final text = _buildOutgoingMessage(
-          context: context,
-          text: textController.text.trim(),
-          attachments: pendingAttachments.value,
-        );
-        await notifier.send(text);
-        textController.clear();
-        pendingAttachments.value = const [];
+        try {
+          final message = AiMultimodalMessageCodec.encodeFromPickedFiles(
+            text: textController.text.trim(),
+            attachments: pendingAttachments.value,
+          );
+          await notifier.send(message);
+          textController.clear();
+          pendingAttachments.value = const [];
+        } catch (error) {
+          if (!context.mounted) {
+            return;
+          }
+          ToastMessage.show(_formatAttachmentError(error));
+        }
         return;
       }
       if (canRetryLastTurn) {
@@ -129,6 +134,10 @@ class AiChatInput extends HookConsumerWidget {
             if (picked == null) {
               return;
             }
+            AiMultimodalMessageCodec.encodeFromPickedFiles(
+              text: '',
+              attachments: [picked],
+            );
             pendingAttachments.value = [
               ...pendingAttachments.value,
               picked,
@@ -137,7 +146,7 @@ class AiChatInput extends HookConsumerWidget {
             if (!context.mounted) {
               return;
             }
-            ToastMessage.show(error.toString());
+            ToastMessage.show(_formatAttachmentError(error));
           }
           break;
         case _AiInputMenuAction.uploadFile:
@@ -146,6 +155,10 @@ class AiChatInput extends HookConsumerWidget {
             if (picked == null) {
               return;
             }
+            AiMultimodalMessageCodec.encodeFromPickedFiles(
+              text: '',
+              attachments: [picked],
+            );
             pendingAttachments.value = [
               ...pendingAttachments.value,
               picked,
@@ -154,7 +167,7 @@ class AiChatInput extends HookConsumerWidget {
             if (!context.mounted) {
               return;
             }
-            ToastMessage.show(error.toString());
+            ToastMessage.show(_formatAttachmentError(error));
           }
           break;
       }
@@ -357,91 +370,12 @@ class AiChatInput extends HookConsumerWidget {
     );
   }
 
-  String _buildOutgoingMessage({
-    required BuildContext context,
-    required String text,
-    required List<PickedFileData> attachments,
-  }) {
-    if (attachments.isEmpty) {
-      return text;
+  String _formatAttachmentError(Object error) {
+    final raw = error.toString().trim();
+    if (raw.startsWith('Exception: ')) {
+      return raw.substring('Exception: '.length);
     }
-
-    final attachmentBlocks = attachments
-        .map((file) => _buildAttachmentBlock(context: context, file: file))
-        .where((block) => block.trim().isNotEmpty)
-        .join('\n\n');
-    final header = context.isZh
-        ? '以下是用户附带的本地附件信息，请结合这些附件继续回答：'
-        : 'The user attached the following local files. Use them as context when answering:';
-    final body = text.trim();
-    if (body.isEmpty) {
-      return '$header\n\n$attachmentBlocks';
-    }
-    return '$header\n\n$attachmentBlocks\n\n$body';
-  }
-
-  String _buildAttachmentBlock({
-    required BuildContext context,
-    required PickedFileData file,
-  }) {
-    final extension = (file.extension ?? '').toLowerCase();
-    final isImage = const {
-      'png',
-      'jpg',
-      'jpeg',
-      'gif',
-      'webp',
-      'bmp',
-      'heic',
-    }.contains(extension);
-    final isTextLike = const {
-      'txt',
-      'md',
-      'json',
-      'xml',
-      'html',
-      'htm',
-      'js',
-      'ts',
-      'java',
-      'kt',
-      'kts',
-      'dart',
-      'py',
-      'log',
-      'yaml',
-      'yml',
-      'properties',
-      'csv',
-      'ini',
-      'sh',
-      'smali',
-    }.contains(extension);
-    final label = isImage
-        ? (context.isZh ? '图片附件' : 'Image attachment')
-        : (context.isZh ? '文件附件' : 'File attachment');
-    final buffer = StringBuffer()
-      ..writeln('[$label]')
-      ..writeln('${context.isZh ? '名称' : 'Name'}: ${file.fileName}')
-      ..writeln('${context.isZh ? '大小' : 'Size'}: ${file.formattedSize}');
-    if (file.path != null && file.path!.isNotEmpty) {
-      buffer.writeln('${context.isZh ? '路径' : 'Path'}: ${file.path}');
-    }
-
-    if (isTextLike && file.size <= 64 * 1024) {
-      final preview = utf8.decode(file.bytes, allowMalformed: true).trim();
-      if (preview.isNotEmpty) {
-        final excerpt = preview.length > 4000
-            ? '${preview.substring(0, 4000)}\n...'
-            : preview;
-        buffer
-          ..writeln()
-          ..writeln(context.isZh ? '文件内容预览:' : 'File content preview:')
-          ..write(excerpt);
-      }
-    }
-
-    return buffer.toString().trim();
+    return raw;
   }
 }
 
@@ -638,7 +572,7 @@ class _ContextSheet extends StatelessWidget {
                     ? [context.l10n.aiContextNoCheckpoint]
                     : [
                         '${context.l10n.aiContextCheckpointTime}: ${checkpoint.createdAtIso}',
-                        '${context.l10n.aiContextCheckpointPrompt}: ${checkpoint.lastUserMessage?.content ?? context.l10n.aiSummaryEmpty}',
+                        '${context.l10n.aiContextCheckpointPrompt}: ${checkpoint.lastUserMessage == null ? context.l10n.aiSummaryEmpty : AiMultimodalMessageCodec.toDisplayText(checkpoint.lastUserMessage!.content, isZh: context.isZh)}',
                         '${context.l10n.aiContextCheckpointMode}: ${_localizedRecoveryMode(context, lastRecoveryMode)}',
                       ],
               ),
