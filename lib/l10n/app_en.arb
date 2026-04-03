@@ -755,5 +755,13 @@
   "@lsposedAddFailed": {
     "placeholders": { "name": { "type": "String" } }
   },
-  "lsposedAddFailedService": "Add failed: LSPosed service unavailable"
+  "lsposedAddFailedService": "Add failed: LSPosed service unavailable",
+  "aiMethodDetail": "Method Details",
+  "aiMethodName": "Method Name",
+  "aiMethodModifier": "Modifier",
+  "aiMethodReturnType": "Return Type",
+  "aiMethodParams": "Parameters",
+  "aiMethodClass": "Class",
+  "aiMethodHookHint": "Hook Hint",
+  "aiMethodCopyFull": "Copy Full Path"
 }

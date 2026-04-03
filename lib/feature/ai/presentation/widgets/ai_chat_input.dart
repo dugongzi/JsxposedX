@@ -100,9 +100,11 @@ class AiChatInput extends HookConsumerWidget {
             text: textController.text.trim(),
             attachments: pendingAttachments.value,
           );
-          await notifier.send(message);
+          
           textController.clear();
           pendingAttachments.value = const [];
+          
+          notifier.send(message); // Fire and forget
         } catch (error) {
           if (!context.mounted) {
             return;

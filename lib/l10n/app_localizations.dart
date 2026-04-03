@@ -3085,6 +3085,54 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'添加失败: LSPosed 服务不可用'**
   String get lsposedAddFailedService;
+
+  /// No description provided for @aiMethodDetail.
+  ///
+  /// In zh, this message translates to:
+  /// **'方法详情'**
+  String get aiMethodDetail;
+
+  /// No description provided for @aiMethodName.
+  ///
+  /// In zh, this message translates to:
+  /// **'方法名'**
+  String get aiMethodName;
+
+  /// No description provided for @aiMethodModifier.
+  ///
+  /// In zh, this message translates to:
+  /// **'修饰符'**
+  String get aiMethodModifier;
+
+  /// No description provided for @aiMethodReturnType.
+  ///
+  /// In zh, this message translates to:
+  /// **'返回类型'**
+  String get aiMethodReturnType;
+
+  /// No description provided for @aiMethodParams.
+  ///
+  /// In zh, this message translates to:
+  /// **'参数列表'**
+  String get aiMethodParams;
+
+  /// No description provided for @aiMethodClass.
+  ///
+  /// In zh, this message translates to:
+  /// **'所属类'**
+  String get aiMethodClass;
+
+  /// No description provided for @aiMethodHookHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'Hook 指引'**
+  String get aiMethodHookHint;
+
+  /// No description provided for @aiMethodCopyFull.
+  ///
+  /// In zh, this message translates to:
+  /// **'复制完整类名.方法名'**
+  String get aiMethodCopyFull;
 }
 
 class _AppLocalizationsDelegate

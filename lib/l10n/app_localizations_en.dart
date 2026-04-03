@@ -1585,4 +1585,28 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get lsposedAddFailedService =>
       'Add failed: LSPosed service unavailable';
+
+  @override
+  String get aiMethodDetail => 'Method Details';
+
+  @override
+  String get aiMethodName => 'Method Name';
+
+  @override
+  String get aiMethodModifier => 'Modifier';
+
+  @override
+  String get aiMethodReturnType => 'Return Type';
+
+  @override
+  String get aiMethodParams => 'Parameters';
+
+  @override
+  String get aiMethodClass => 'Class';
+
+  @override
+  String get aiMethodHookHint => 'Hook Hint';
+
+  @override
+  String get aiMethodCopyFull => 'Copy Full Path';
 }

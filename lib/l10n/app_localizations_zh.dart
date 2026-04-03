@@ -1563,4 +1563,28 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get lsposedAddFailedService => '添加失败: LSPosed 服务不可用';
+
+  @override
+  String get aiMethodDetail => '方法详情';
+
+  @override
+  String get aiMethodName => '方法名';
+
+  @override
+  String get aiMethodModifier => '修饰符';
+
+  @override
+  String get aiMethodReturnType => '返回类型';
+
+  @override
+  String get aiMethodParams => '参数列表';
+
+  @override
+  String get aiMethodClass => '所属类';
+
+  @override
+  String get aiMethodHookHint => 'Hook 指引';
+
+  @override
+  String get aiMethodCopyFull => '复制完整类名.方法名';
 }

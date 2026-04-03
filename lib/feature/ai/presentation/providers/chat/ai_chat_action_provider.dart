@@ -307,9 +307,10 @@ class AiChatAction extends _$AiChatAction {
     _stopRequested = false;
 
     if (state.currentSessionId == null) {
-      await createSession(
+      // 这里的创建会引发 saveSessions 等 IO，绝对不能 await
+      unawaited(createSession(
         '新对话 ${DateTime.now().hour}:${DateTime.now().minute}',
-      );
+      ));
     }
 
     if (state.sessionInitState == AiSessionInitState.initializing) {
@@ -694,14 +695,24 @@ class AiChatAction extends _$AiChatAction {
     );
     _appendDisplayMessage(newPlaceholder);
 
-    await _runAssistantTurn(
-      config: config,
-      protocolMessages: state.protocolMessages,
-      placeholderId: newPlaceholder.id,
-      retriesRemaining: 2,
-      toolsJson: toolsJson,
-      recoveryMode: AiChatRecoveryMode.resumeToolPhase,
-    );
+    Future<void>.microtask(() async {
+      try {
+        await _runAssistantTurn(
+          config: config,
+          protocolMessages: state.protocolMessages,
+          placeholderId: newPlaceholder.id,
+          retriesRemaining: 2,
+          toolsJson: toolsJson,
+          recoveryMode: AiChatRecoveryMode.resumeToolPhase,
+        );
+      } catch (error) {
+        _markDisplayMessageError(
+          newPlaceholder.id,
+          '发送失败：${_describeThrownError(error)}',
+          AiResponseIssue.networkError,
+        );
+      }
+    });
   }
 
   Future<_CollectedAssistantResponse> _collectAssistantResponse({
@@ -1067,22 +1078,24 @@ class AiChatAction extends _$AiChatAction {
     );
     await _saveChatHistory();
 
-    try {
-      await _runAssistantTurn(
-        config: config,
-        protocolMessages: contextAssembly.sanitizedProtocolMessages,
-        placeholderId: placeholder.id,
-        retriesRemaining: 1,
-        toolsJson: _buildToolsJson(),
-        recoveryMode: AiChatRecoveryMode.continueGeneration,
-      );
-    } catch (error) {
-      _markDisplayMessageError(
-        placeholder.id,
-        _describeThrownError(error),
-        AiResponseIssue.networkError,
-      );
-    }
+    Future<void>.microtask(() async {
+      try {
+        await _runAssistantTurn(
+          config: config,
+          protocolMessages: contextAssembly.sanitizedProtocolMessages,
+          placeholderId: placeholder.id,
+          retriesRemaining: 1,
+          toolsJson: _buildToolsJson(),
+          recoveryMode: AiChatRecoveryMode.continueGeneration,
+        );
+      } catch (error) {
+        _markDisplayMessageError(
+          placeholder.id,
+          _describeThrownError(error),
+          AiResponseIssue.networkError,
+        );
+      }
+    });
   }
 
   Future<void> retryLastTurn() async {
@@ -1288,22 +1301,24 @@ class AiChatAction extends _$AiChatAction {
       final sessionIndex = state.sessions.indexWhere(
         (session) => session.id == sessionId,
       );
-      if (sessionIndex == -1) {
-        return;
+      if (sessionIndex != -1) {
+        final updatedSessions = List<AiSession>.from(state.sessions);
+        updatedSessions[sessionIndex] = updatedSessions[sessionIndex].copyWith(
+          lastUpdateTime: DateTime.now(),
+          lastMessage: '',
+        );
+        // UI 层的列表更新可以异步，不阻塞当前微任务
+        Future.microtask(() {
+          state = state.copyWith(
+            sessions: List<AiSession>.unmodifiable(updatedSessions),
+          );
+        });
+        
+        // 这里的持久化 IO 已经在异步块内，但是为了双重保险，确保不被 await
+        unawaited(ref
+            .read(aiChatActionRepositoryProvider)
+            .saveSessions(packageName, updatedSessions));
       }
-
-      const lastMessage = '';
-      final updatedSessions = List<AiSession>.from(state.sessions);
-      updatedSessions[sessionIndex] = updatedSessions[sessionIndex].copyWith(
-        lastUpdateTime: DateTime.now(),
-        lastMessage: lastMessage,
-      );
-      state = state.copyWith(
-        sessions: List<AiSession>.unmodifiable(updatedSessions),
-      );
-      await ref
-          .read(aiChatActionRepositoryProvider)
-          .saveSessions(packageName, updatedSessions);
     } catch (_) {
       // Keep UI responsive even if persistence fails.
     }
@@ -1330,21 +1345,7 @@ class AiChatAction extends _$AiChatAction {
       content: '',
     );
     final protocolMessages = [...baseProtocolMessages, userMessage];
-    final contextAssembly = _assembleContext(
-      protocolMessages: protocolMessages,
-      previousContext: state.sessionContext,
-      config: config,
-      recoveryMode: recoveryMode,
-    );
-    final checkpoint = AiChatCheckpoint(
-      createdAtIso: DateTime.now().toIso8601String(),
-      lastUserMessage: userMessage,
-      protocolMessages: contextAssembly.sanitizedProtocolMessages,
-      sessionMemorySnapshot: contextAssembly.context.sessionMemory,
-      taskStateSnapshot: contextAssembly.context.taskState,
-      toolTraceSnapshot: contextAssembly.context.toolTrace,
-      recoveryMode: recoveryMode,
-    );
+    // 1. 同步更新 UI：显示消息和加载状态，确保 0 延迟反馈
     state = state.copyWith(
       protocolMessages: List<AiMessage>.unmodifiable(protocolMessages),
       messages: List<AiMessage>.unmodifiable([
@@ -1354,29 +1355,55 @@ class AiChatAction extends _$AiChatAction {
       isStreaming: true,
       error: null,
       lastResponseIssue: null,
-      sessionContext: contextAssembly.context.copyWith(checkpoint: checkpoint),
-      contextStats: contextAssembly.context.stats,
-      contextVersion: contextAssembly.context.version,
     );
-    await _saveChatHistory();
 
-    try {
-      _latestStreamingContent = '';
-      await _runAssistantTurn(
-        config: config,
-        protocolMessages: contextAssembly.sanitizedProtocolMessages,
-        placeholderId: placeholder.id,
-        toolsJson: _buildToolsJson(),
-        retriesRemaining: retriesRemaining,
-        recoveryMode: recoveryMode,
-      );
-    } catch (error) {
-      _markDisplayMessageError(
-        placeholder.id,
-        '发送失败：${_describeThrownError(error)}',
-        AiResponseIssue.networkError,
-      );
-    }
+    // 2. 将繁重的计算和 IO 任务彻底移出当前帧
+    Future<void>.microtask(() async {
+      try {
+        // 耗时的 Token 计算和拼装
+        final contextAssembly = _assembleContext(
+          protocolMessages: protocolMessages,
+          previousContext: state.sessionContext,
+          config: config,
+          recoveryMode: recoveryMode,
+        );
+
+        final checkpoint = AiChatCheckpoint(
+          createdAtIso: DateTime.now().toIso8601String(),
+          lastUserMessage: userMessage,
+          protocolMessages: contextAssembly.sanitizedProtocolMessages,
+          sessionMemorySnapshot: contextAssembly.context.sessionMemory,
+          taskStateSnapshot: contextAssembly.context.taskState,
+          toolTraceSnapshot: contextAssembly.context.toolTrace,
+          recoveryMode: recoveryMode,
+        );
+
+        // 更新最终状态：同步上下文、版本和统计数据
+        state = state.copyWith(
+          sessionContext: contextAssembly.context.copyWith(checkpoint: checkpoint),
+          contextStats: contextAssembly.context.stats,
+          contextVersion: contextAssembly.context.version,
+        );
+
+        await _saveChatHistory();
+
+        _latestStreamingContent = '';
+        await _runAssistantTurn(
+          config: config,
+          protocolMessages: contextAssembly.sanitizedProtocolMessages,
+          placeholderId: placeholder.id,
+          toolsJson: _buildToolsJson(),
+          retriesRemaining: retriesRemaining,
+          recoveryMode: recoveryMode,
+        );
+      } catch (error) {
+        _markDisplayMessageError(
+          placeholder.id,
+          '发送失败：${_describeThrownError(error)}',
+          AiResponseIssue.networkError,
+        );
+      }
+    });
   }
 
   Future<List<AiMessage>> _prepareProtocolMessages(
@@ -2266,14 +2293,24 @@ class AiChatAction extends _$AiChatAction {
       contextVersion: contextAssembly.context.version,
     );
     await _saveChatHistory();
-    await _runAssistantTurn(
-      config: config,
-      protocolMessages: contextAssembly.sanitizedProtocolMessages,
-      placeholderId: placeholder.id,
-      retriesRemaining: 1,
-      toolsJson: _buildToolsJson(),
-      recoveryMode: recoveryMode,
-    );
+    Future<void>.microtask(() async {
+      try {
+        await _runAssistantTurn(
+          config: config,
+          protocolMessages: contextAssembly.sanitizedProtocolMessages,
+          placeholderId: placeholder.id,
+          retriesRemaining: 1,
+          toolsJson: _buildToolsJson(),
+          recoveryMode: recoveryMode,
+        );
+      } catch (error) {
+        _markDisplayMessageError(
+          placeholder.id,
+          _describeThrownError(error),
+          AiResponseIssue.networkError,
+        );
+      }
+    });
   }
 
   String _describeThrownError(Object error) {

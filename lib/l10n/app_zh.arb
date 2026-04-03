@@ -760,9 +760,13 @@
   "@lsposedAddFailed": {
     "placeholders": { "name": { "type": "String" } }
   },
-  "lsposedAddFailedService": "添加失败: LSPosed 服务不可用"
+  "lsposedAddFailedService": "添加失败: LSPosed 服务不可用",
+  "aiMethodDetail": "方法详情",
+  "aiMethodName": "方法名",
+  "aiMethodModifier": "修饰符",
+  "aiMethodReturnType": "返回类型",
+  "aiMethodParams": "参数列表",
+  "aiMethodClass": "所属类",
+  "aiMethodHookHint": "Hook 指引",
+  "aiMethodCopyFull": "复制完整类名.方法名"
 }
-
-
-
-
