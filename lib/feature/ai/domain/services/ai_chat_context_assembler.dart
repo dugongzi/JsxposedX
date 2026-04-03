@@ -10,7 +10,6 @@ class AiChatContextAssembler {
   }) : _estimator = estimator ?? const AiChatContextBudgetEstimator();
 
   static const String legacySummaryPrefix = '[session_summary]';
-  static const int toolResultProtocolMaxChars = 900;
 
   final AiChatContextBudgetEstimator _estimator;
 
@@ -178,11 +177,7 @@ class AiChatContextAssembler {
             awaitingToolResults = false;
           }
         }
-        sanitized.add(
-          message.copyWith(
-            content: _summarizeToolProtocolContent(message.content),
-          ),
-        );
+        sanitized.add(message);
         continue;
       }
       if (awaitingToolResults) {
@@ -237,6 +232,9 @@ class AiChatContextAssembler {
 
   List<AiMessage> _dropOldestTurn(List<AiMessage> messages) {
     if (messages.length <= 1) {
+      return List<AiMessage>.from(messages);
+    }
+    if (_countUserRounds(messages) <= 1) {
       return List<AiMessage>.from(messages);
     }
     for (var index = 1; index < messages.length; index++) {
@@ -539,27 +537,6 @@ class AiChatContextAssembler {
         .map((toolCall) => toolCall['id']?.toString() ?? '')
         .where((id) => id.isNotEmpty)
         .toList(growable: false);
-  }
-
-  String _summarizeToolProtocolContent(String content) {
-    final cleaned = content.trim();
-    if (cleaned.isEmpty) {
-      return '';
-    }
-    final lines = cleaned
-        .replaceAll('\r', '')
-        .split('\n')
-        .map((line) => line.trim())
-        .where((line) => line.isNotEmpty)
-        .toList(growable: false);
-    if (lines.isEmpty) {
-      return '';
-    }
-    final summary = lines.take(8).join('\n');
-    if (summary.length <= toolResultProtocolMaxChars) {
-      return summary;
-    }
-    return '${summary.substring(0, toolResultProtocolMaxChars)}...';
   }
 
   bool _looksLikeHypothesis(String text) {

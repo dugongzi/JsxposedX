@@ -10,7 +10,11 @@ import 'package:JsxposedX/feature/ai/domain/models/ai_chat_session_context.dart'
 import 'package:JsxposedX/feature/ai/domain/models/padi_chat_options.dart';
 import 'package:JsxposedX/feature/ai/domain/services/ai_multimodal_message_codec.dart';
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+
+const String openAiResponsesReasoningProtocolPrefix =
+    '[responses_reasoning_item]';
 
 class AiChatActionDatasource {
   AiChatActionDatasource({
@@ -314,7 +318,7 @@ class AiChatActionDatasource {
       'input': _mapResponsesInput(messages),
       'stream': true,
       'store': false,
-      if (instructions.isNotEmpty) 'instructions': instructions,
+      'include': const ['reasoning.encrypted_content'],
       'reasoning': {
         'effort': effectiveReasoningEffort,
       },
@@ -449,6 +453,13 @@ class AiChatActionDatasource {
                 break;
               }
               final itemType = item['type']?.toString();
+              if (itemType == 'reasoning') {
+                yield AiMessageDto(
+                  role: 'system',
+                  content: OpenAiResponsesReasoningItemCodec.encode(item),
+                );
+                break;
+              }
               if (itemType == 'function_call') {
                 final itemId = item['id']?.toString() ?? '';
                 if (itemId.isEmpty) {
@@ -1133,104 +1144,11 @@ class AiChatActionDatasource {
   }
 
   List<Map<String, dynamic>> _mapResponsesInput(List<AiMessageDto> messages) {
-    final input = <Map<String, dynamic>>[];
-
-    for (final message in messages) {
-      if (message.role == 'system' || message.role == 'developer') {
-        continue;
-      }
-
-      if (message.role == 'tool' && message.toolCallId != null) {
-        input.add({
-          'type': 'function_call_output',
-          'call_id': message.toolCallId,
-          'output': message.content,
-        });
-        continue;
-      }
-
-      if (message.hasToolCalls) {
-        if (message.content.trim().isNotEmpty) {
-          input.add({
-            'type': 'message',
-            'role': 'assistant',
-            'content': message.content,
-          });
-        }
-        for (final toolCall in message.toolCalls!) {
-          final function = toolCall['function'] as Map<String, dynamic>? ?? {};
-          input.add({
-            'type': 'function_call',
-            'call_id': toolCall['id']?.toString() ?? '',
-            'name': function['name']?.toString() ?? '',
-            'arguments': function['arguments']?.toString() ?? '{}',
-          });
-        }
-        continue;
-      }
-
-      input.add(_mapResponsesMessage(message));
-    }
-
-    return input;
+    return OpenAiResponsesPayloadComposer.buildInput(messages);
   }
 
   String _buildResponsesInstructions(List<AiMessageDto> messages) {
-    final parts = messages
-        .where((message) => message.role == 'system' || message.role == 'developer')
-        .map((message) => message.content.trim())
-        .where((content) => content.isNotEmpty)
-        .toList(growable: false);
-    return parts.join('\n\n');
-  }
-
-  Map<String, dynamic> _mapResponsesMessage(AiMessageDto message) {
-    if (message.role == 'assistant') {
-      return {
-        'role': 'assistant',
-        'content': message.content,
-      };
-    }
-
-    if (message.role == 'user' &&
-        AiMultimodalMessageCodec.isEncoded(message.content)) {
-      return {
-        'type': 'message',
-        'role': 'user',
-        'content': _toResponsesContent(message.content),
-      };
-    }
-
-    return {
-      'role': 'user',
-      'content': message.content,
-    };
-  }
-
-  List<Map<String, dynamic>> _toResponsesContent(String content) {
-    final openAiContent = AiMultimodalMessageCodec.toOpenAiContent(
-      content,
-      isZh: true,
-    );
-    return openAiContent.map((part) {
-      final type = part['type']?.toString() ?? 'text';
-      switch (type) {
-        case 'image_url':
-          final imagePayload = part['image_url'];
-          return {
-            'type': 'input_image',
-            'image_url': imagePayload is Map<String, dynamic>
-                ? imagePayload['url']?.toString() ?? ''
-                : '',
-          };
-        case 'text':
-        default:
-          return {
-            'type': 'input_text',
-            'text': part['text']?.toString() ?? '',
-          };
-      }
-    }).toList(growable: false);
+    return OpenAiResponsesPayloadComposer.buildInstructions(messages);
   }
 
   Map<String, dynamic> _normalizeOpenAiResponsesTool(Map<String, dynamic> tool) {
@@ -1301,5 +1219,167 @@ class AiChatActionDatasource {
     }
 
     return Map<String, dynamic>.from(tool);
+  }
+}
+
+@visibleForTesting
+final class OpenAiResponsesPayloadComposer {
+  static const List<String> _internalInstructionPrefixes = <String>[
+    '[context_memory]',
+    '[task_state]',
+    '[session_summary]',
+    openAiResponsesReasoningProtocolPrefix,
+  ];
+
+  static List<Map<String, dynamic>> buildInput(List<AiMessageDto> messages) {
+    final input = <Map<String, dynamic>>[];
+
+    for (final message in messages) {
+      final reasoningItem =
+          OpenAiResponsesReasoningItemCodec.tryDecode(message.content);
+      if (reasoningItem != null) {
+        input.add(reasoningItem);
+        continue;
+      }
+
+      if (message.role == 'system' || message.role == 'developer') {
+        input.add({
+          'type': 'message',
+          'role': 'developer',
+          'content': <Map<String, dynamic>>[
+            {
+              'type': 'input_text',
+              'text': message.content,
+            },
+          ],
+        });
+        continue;
+      }
+
+      if (message.role == 'tool') {
+        final toolCallId = message.toolCallId?.trim();
+        if (toolCallId == null || toolCallId.isEmpty) {
+          continue;
+        }
+        input.add({
+          'type': 'function_call_output',
+          'call_id': toolCallId,
+          'output': message.content,
+        });
+        continue;
+      }
+
+      if (message.hasToolCalls) {
+        if (message.content.trim().isNotEmpty) {
+          input.add(mapMessage(message));
+        }
+        for (final toolCall in message.toolCalls!) {
+          final function = toolCall['function'] as Map<String, dynamic>? ?? {};
+          final callId = toolCall['id']?.toString().trim() ?? '';
+          final name = function['name']?.toString().trim() ?? '';
+          if (callId.isEmpty || name.isEmpty) {
+            continue;
+          }
+          input.add({
+            'type': 'function_call',
+            'call_id': callId,
+            'name': name,
+            'arguments': function['arguments']?.toString() ?? '{}',
+          });
+        }
+        continue;
+      }
+
+      input.add(mapMessage(message));
+    }
+
+    return input;
+  }
+
+  static String buildInstructions(List<AiMessageDto> messages) {
+    return '';
+  }
+
+  static Map<String, dynamic> mapMessage(AiMessageDto message) {
+    final normalizedRole = message.role == 'assistant' ? 'assistant' : 'user';
+    final contentType = normalizedRole == 'assistant' ? 'output_text' : 'input_text';
+    if (normalizedRole == 'user' &&
+        AiMultimodalMessageCodec.isEncoded(message.content)) {
+      return {
+        'type': 'message',
+        'role': normalizedRole,
+        'content': toResponsesContent(message.content),
+      };
+    }
+
+    return {
+      'type': 'message',
+      'role': normalizedRole,
+      'content': <Map<String, dynamic>>[
+        {
+          'type': contentType,
+          'text': message.content,
+        },
+      ],
+    };
+  }
+
+  static List<Map<String, dynamic>> toResponsesContent(String content) {
+    final openAiContent = AiMultimodalMessageCodec.toOpenAiContent(
+      content,
+      isZh: true,
+    );
+    return openAiContent.map((part) {
+      final type = part['type']?.toString() ?? 'text';
+      switch (type) {
+        case 'image_url':
+          final imagePayload = part['image_url'];
+          return {
+            'type': 'input_image',
+            'image_url': imagePayload is Map<String, dynamic>
+                ? imagePayload['url']?.toString() ?? ''
+                : '',
+          };
+        case 'text':
+        default:
+          return {
+            'type': 'input_text',
+            'text': part['text']?.toString() ?? '',
+          };
+      }
+    }).toList(growable: false);
+  }
+
+  static bool _isInternalInstruction(String content) {
+    return _internalInstructionPrefixes.any(content.startsWith);
+  }
+}
+
+final class OpenAiResponsesReasoningItemCodec {
+  static String encode(Map<String, dynamic> item) {
+    return '$openAiResponsesReasoningProtocolPrefix${jsonEncode(item)}';
+  }
+
+  static bool isEncoded(String content) {
+    return content.startsWith(openAiResponsesReasoningProtocolPrefix);
+  }
+
+  static Map<String, dynamic>? tryDecode(String content) {
+    if (!isEncoded(content)) {
+      return null;
+    }
+    try {
+      final raw = content.substring(openAiResponsesReasoningProtocolPrefix.length);
+      final decoded = jsonDecode(raw);
+      if (decoded is Map<String, dynamic>) {
+        return decoded;
+      }
+      if (decoded is Map) {
+        return Map<String, dynamic>.from(decoded);
+      }
+    } catch (_) {
+      return null;
+    }
+    return null;
   }
 }

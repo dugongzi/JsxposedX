@@ -66,7 +66,6 @@ class AiChatAction extends _$AiChatAction {
   static const int _contextHardBudgetChars = 16000;
   static const int _contextTargetBudgetChars = 9000;
   static const int _recentUserRoundsToKeep = 3;
-  static const int _toolResultProtocolMaxChars = 900;
 
   bool _isDisposed = false;
   bool _stopRequested = false;
@@ -536,6 +535,7 @@ class AiChatAction extends _$AiChatAction {
         config: config,
         protocolMessages: contextAssembly.sanitizedProtocolMessages,
         placeholderId: placeholderId,
+        reasoningItems: response.responsesReasoningItems,
         initialContent: response.content,
         initialDisplayContent: _composeDisplayContent(
           thinkingContent: response.thinkingContent,
@@ -555,6 +555,7 @@ class AiChatAction extends _$AiChatAction {
       ),
       protocolMessages: [
         ...contextAssembly.sanitizedProtocolMessages,
+        ..._buildResponsesReasoningProtocolMessages(response.responsesReasoningItems),
         AiMessage(
           id: const Uuid().v4(),
           role: 'assistant',
@@ -568,6 +569,7 @@ class AiChatAction extends _$AiChatAction {
     required AiConfig config,
     required List<AiMessage> protocolMessages,
     required String placeholderId,
+    required List<String> reasoningItems,
     required List<Map<String, dynamic>> toolCalls,
     required String initialContent,
     required String initialDisplayContent,
@@ -589,7 +591,11 @@ class AiChatAction extends _$AiChatAction {
       content: initialContent,
       toolCalls: toolCalls,
     );
-    var nextProtocolMessages = [...protocolMessages, assistantToolMessage];
+    var nextProtocolMessages = [
+      ...protocolMessages,
+      ..._buildResponsesReasoningProtocolMessages(reasoningItems),
+      assistantToolMessage,
+    ];
     state = state.copyWith(
       protocolMessages: List<AiMessage>.unmodifiable(nextProtocolMessages),
     );
@@ -641,11 +647,7 @@ class AiChatAction extends _$AiChatAction {
         ...state.protocolMessages,
         AiMessage.toolResult(
           toolCallId: result.toolCallId,
-          content: _buildToolResultProtocolSummary(
-            call: call,
-            content: result.content,
-            success: result.success,
-          ),
+          content: result.content,
         ),
       ];
       state = state.copyWith(
@@ -724,6 +726,7 @@ class AiChatAction extends _$AiChatAction {
 
     final contentBuffer = StringBuffer();
     final thinkingBuffer = StringBuffer();
+    final responsesReasoningItems = <String>[];
     List<Map<String, dynamic>>? toolCalls;
     var sawChunk = false;
     final completer = Completer<_CollectedAssistantResponse>();
@@ -751,6 +754,12 @@ class AiChatAction extends _$AiChatAction {
                 ),
               );
             }
+            return;
+          }
+
+          if (OpenAiResponsesReasoningItemCodec.isEncoded(chunk.content)) {
+            sawChunk = true;
+            responsesReasoningItems.add(chunk.content);
             return;
           }
 
@@ -784,6 +793,9 @@ class AiChatAction extends _$AiChatAction {
                 _CollectedAssistantResponse(
                   content: bufferedContent,
                   thinkingContent: thinkingBuffer.toString(),
+                  responsesReasoningItems: List<String>.unmodifiable(
+                    responsesReasoningItems,
+                  ),
                   issue: AiResponseIssue.partialResponse,
                   errorMessage: _describePlatformException(error),
                 ),
@@ -791,34 +803,43 @@ class AiChatAction extends _$AiChatAction {
               return;
             }
             completer.complete(
-              _CollectedAssistantResponse(
-                content: bufferedContent,
-                thinkingContent: thinkingBuffer.toString(),
-                issue: _classifyPlatformIssue(error),
-                errorMessage: _describePlatformException(error),
-              ),
+                _CollectedAssistantResponse(
+                  content: bufferedContent,
+                  thinkingContent: thinkingBuffer.toString(),
+                  responsesReasoningItems: List<String>.unmodifiable(
+                    responsesReasoningItems,
+                  ),
+                  issue: _classifyPlatformIssue(error),
+                  errorMessage: _describePlatformException(error),
+                ),
             );
             return;
           }
 
           if (bufferedContent.isNotEmpty) {
             completer.complete(
-              _CollectedAssistantResponse(
-                content: bufferedContent,
-                thinkingContent: thinkingBuffer.toString(),
-                issue: AiResponseIssue.partialResponse,
-                errorMessage: error.toString(),
-              ),
+                _CollectedAssistantResponse(
+                  content: bufferedContent,
+                  thinkingContent: thinkingBuffer.toString(),
+                  responsesReasoningItems: List<String>.unmodifiable(
+                    responsesReasoningItems,
+                  ),
+                  issue: AiResponseIssue.partialResponse,
+                  errorMessage: error.toString(),
+                ),
             );
             return;
           }
 
           completer.complete(
-            _CollectedAssistantResponse(
-              content: '',
-              issue: AiResponseIssue.networkError,
-              errorMessage: error.toString(),
-            ),
+              _CollectedAssistantResponse(
+                content: '',
+                responsesReasoningItems: List<String>.unmodifiable(
+                  responsesReasoningItems,
+                ),
+                issue: AiResponseIssue.networkError,
+                errorMessage: error.toString(),
+              ),
           );
         },
         onDone: () {
@@ -854,6 +875,9 @@ class AiChatAction extends _$AiChatAction {
             _CollectedAssistantResponse(
               content: fullContent,
               thinkingContent: thinkingBuffer.toString(),
+              responsesReasoningItems: List<String>.unmodifiable(
+                responsesReasoningItems,
+              ),
               toolCalls: toolCalls,
             ),
           );
@@ -1414,11 +1438,7 @@ class AiChatAction extends _$AiChatAction {
             awaitingToolResults = false;
           }
         }
-        sanitized.add(
-          message.copyWith(
-            content: _summarizeToolProtocolContent(message.content),
-          ),
-        );
+        sanitized.add(message);
       } else {
         pendingToolCallIds.clear();
         awaitingToolResults = false;
@@ -1437,15 +1457,22 @@ class AiChatAction extends _$AiChatAction {
       return latestSummary == null ? workingMessages : [latestSummary];
     }
 
-    final recentMessages = _selectRecentMessagesForCompaction(workingMessages);
-    final cutoffIndex = workingMessages.length - recentMessages.length;
-    final olderMessages = workingMessages.sublist(0, cutoffIndex);
+    final protectedStartIndex = _findLastUserMessageIndex(workingMessages);
+    if (protectedStartIndex <= 0) {
+      return List<AiMessage>.unmodifiable([
+        if (latestSummary != null) latestSummary,
+        ...workingMessages,
+      ]);
+    }
+
+    final olderMessages = workingMessages.sublist(0, protectedStartIndex);
     if (olderMessages.isEmpty) {
       return List<AiMessage>.unmodifiable([
         if (latestSummary != null) latestSummary,
         ...workingMessages,
       ]);
     }
+    final protectedMessages = workingMessages.sublist(protectedStartIndex);
 
     final mergedSummary = _mergeSessionSummary(
       existingSummary: latestSummary?.content,
@@ -1457,15 +1484,19 @@ class AiChatAction extends _$AiChatAction {
         role: 'system',
         content: mergedSummary,
       ),
-      ...recentMessages,
+      ...protectedMessages,
     ];
 
-    while (_estimateProtocolSize(compacted) > _contextTargetBudgetChars &&
-        compacted.length > 2) {
-      compacted.removeAt(1);
-    }
-
     return List<AiMessage>.unmodifiable(compacted);
+  }
+
+  int _findLastUserMessageIndex(List<AiMessage> protocolMessages) {
+    for (var index = protocolMessages.length - 1; index >= 0; index--) {
+      if (protocolMessages[index].role == 'user') {
+        return index;
+      }
+    }
+    return -1;
   }
 
   List<AiMessage> _selectRecentMessagesForCompaction(
@@ -1546,41 +1577,6 @@ class AiChatAction extends _$AiChatAction {
       notes: sections.nextSteps.take(4),
     );
     return buffer.toString().trim();
-  }
-
-  String _buildToolResultProtocolSummary({
-    required AiToolCall call,
-    required String content,
-    required bool success,
-  }) {
-    final argumentSummary = call.arguments.entries
-        .map((entry) => '${entry.key}: ${entry.value}')
-        .join(', ');
-    final resultSummary = _summarizeToolProtocolContent(content);
-    return '${success ? 'success' : 'failure'} ${call.name}'
-        '${argumentSummary.isEmpty ? '' : ' ($argumentSummary)'}\n$resultSummary';
-  }
-
-  String _summarizeToolProtocolContent(String content) {
-    final cleaned = content.trim();
-    if (cleaned.isEmpty) {
-      return '';
-    }
-    final lines = cleaned
-        .replaceAll('\r', '')
-        .split('\n')
-        .map((line) => line.trim())
-        .where((line) => line.isNotEmpty)
-        .toList(growable: false);
-    if (lines.isEmpty) {
-      return '';
-    }
-
-    final summary = lines.take(8).join('\n');
-    if (summary.length <= _toolResultProtocolMaxChars) {
-      return summary;
-    }
-    return '${summary.substring(0, _toolResultProtocolMaxChars)}...';
   }
 
   int _estimateProtocolSize(List<AiMessage> messages) {
@@ -1911,6 +1907,21 @@ class AiChatAction extends _$AiChatAction {
       recoveryMode: AiChatRecoveryMode.none,
     );
     _saveChatHistory();
+  }
+
+  List<AiMessage> _buildResponsesReasoningProtocolMessages(
+    List<String> reasoningItems,
+  ) {
+    return reasoningItems
+        .where(OpenAiResponsesReasoningItemCodec.isEncoded)
+        .map(
+          (content) => AiMessage(
+            id: const Uuid().v4(),
+            role: 'system',
+            content: content,
+          ),
+        )
+        .toList(growable: false);
   }
 
   void _markDisplayMessageError(
@@ -2331,6 +2342,7 @@ class _CollectedAssistantResponse {
   const _CollectedAssistantResponse({
     required this.content,
     this.thinkingContent = '',
+    this.responsesReasoningItems = const [],
     this.toolCalls,
     this.issue,
     this.errorMessage,
@@ -2339,6 +2351,7 @@ class _CollectedAssistantResponse {
 
   final String content;
   final String thinkingContent;
+  final List<String> responsesReasoningItems;
   final List<Map<String, dynamic>>? toolCalls;
   final AiResponseIssue? issue;
   final String? errorMessage;
