@@ -929,6 +929,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get aiBuiltinSwitching => '正在切换到内置默认接口';
 
   @override
+  String get aiBuyCardSecret => '购买卡密';
+
+  @override
   String get aiApiKeyConfigured => 'API Key 已配置';
 
   @override

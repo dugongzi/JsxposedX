@@ -1886,6 +1886,12 @@ abstract class AppLocalizations {
   /// **'正在切换到内置默认接口'**
   String get aiBuiltinSwitching;
 
+  /// No description provided for @aiBuyCardSecret.
+  ///
+  /// In zh, this message translates to:
+  /// **'购买卡密'**
+  String get aiBuyCardSecret;
+
   /// No description provided for @aiApiKeyConfigured.
   ///
   /// In zh, this message translates to:

@@ -944,6 +944,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get aiBuiltinSwitching => 'Switching to built-in default endpoint';
 
   @override
+  String get aiBuyCardSecret => 'Buy Access Code';
+
+  @override
   String get aiApiKeyConfigured => 'API Key configured';
 
   @override

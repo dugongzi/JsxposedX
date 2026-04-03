@@ -487,6 +487,7 @@
   "aiBuiltinConfigName": "帕帝接口",
   "aiBuiltinUseConfig": "使用内置接口",
   "aiBuiltinSwitching": "正在切换到内置默认接口",
+  "aiBuyCardSecret": "购买卡密",
   "aiApiKeyConfigured": "API Key 已配置",
   "aiApiKeyNotConfigured": "API Key 未配置",
   "aiPadiModelLabel": "模型",

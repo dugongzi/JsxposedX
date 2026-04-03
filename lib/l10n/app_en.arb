@@ -488,6 +488,7 @@
   "aiBuiltinConfigName": "PadiApi",
   "aiBuiltinUseConfig": "Use Built-in Endpoint",
   "aiBuiltinSwitching": "Switching to built-in default endpoint",
+  "aiBuyCardSecret": "Buy Access Code",
   "aiApiKeyConfigured": "API Key configured",
   "aiApiKeyNotConfigured": "API Key not configured",
   "aiPadiModelLabel": "Model",
