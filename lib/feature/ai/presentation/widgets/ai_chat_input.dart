@@ -2,12 +2,15 @@ import 'package:JsxposedX/common/pages/toast.dart';
 import 'package:JsxposedX/common/widgets/app_bottom_sheet.dart';
 import 'package:JsxposedX/core/extensions/context_extensions.dart';
 import 'package:JsxposedX/core/utils/file_picker_util.dart';
+import 'package:JsxposedX/feature/ai/domain/constants/builtin_ai_config.dart';
 import 'package:JsxposedX/feature/ai/domain/models/ai_chat_session_context.dart';
 import 'package:JsxposedX/feature/ai/domain/models/ai_session_init_state.dart';
 import 'package:JsxposedX/feature/ai/domain/services/ai_multimodal_message_codec.dart';
 import 'package:JsxposedX/feature/ai/presentation/providers/chat/ai_chat_action_provider.dart';
+import 'package:JsxposedX/feature/ai/presentation/providers/config/ai_config_query_provider.dart';
 import 'package:JsxposedX/feature/ai/presentation/states/ai_chat_action_state.dart';
 import 'package:JsxposedX/feature/ai/presentation/widgets/ai_quick_actions.dart';
+import 'package:JsxposedX/feature/ai/presentation/widgets/padi_chat_options_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -34,6 +37,7 @@ class AiChatInput extends HookConsumerWidget {
     final textController = useTextEditingController();
     final pendingAttachments = useState<List<PickedFileData>>(const []);
     final chatState = ref.watch(aiChatActionProvider(packageName: packageName));
+    final aiConfigAsync = ref.watch(aiConfigProvider);
 
     final textValue = useValueListenable(textController);
     final hasContent = textValue.text.trim().isNotEmpty;
@@ -181,6 +185,12 @@ class AiChatInput extends HookConsumerWidget {
             packageName: packageName,
             systemPrompt: systemPrompt,
             onOpenAnalysis: onOpenAnalysis,
+          ),
+        if (aiConfigAsync.value != null &&
+            isBuiltinAiConfig(aiConfigAsync.value!))
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16.w),
+            child: PadiChatOptionsBar(packageName: packageName),
           ),
         Container(
           padding: EdgeInsets.fromLTRB(16.w, 4.h, 16.w, 20.h),

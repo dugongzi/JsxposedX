@@ -7,6 +7,7 @@ import 'package:JsxposedX/core/providers/pinia_provider.dart';
 import 'package:JsxposedX/feature/ai/data/models/ai_message_dto.dart';
 import 'package:JsxposedX/feature/ai/data/models/ai_session_dto.dart';
 import 'package:JsxposedX/feature/ai/domain/models/ai_chat_session_context.dart';
+import 'package:JsxposedX/feature/ai/domain/models/padi_chat_options.dart';
 import 'package:JsxposedX/feature/ai/domain/services/ai_multimodal_message_codec.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/services.dart';
@@ -27,12 +28,14 @@ class AiChatActionDatasource {
   static const String _chatContentKey = 'messages';
   static const String _chatContextKey = 'context';
   static const String _chatConfigKey = 'config';
+  static const String _padiChatOptionsKey = 'padi_chat_options';
   static const Duration _streamReceiveTimeout = Duration(minutes: 5);
   static const String _defaultResponsesReasoningEffort = 'medium';
 
   Stream<AiMessageDto> postChatStream({
     required AiConfig config,
     required List<AiMessageDto> messages,
+    PadiChatOptions? padiChatOptions,
     List<Map<String, dynamic>>? tools,
     CancelToken? cancelToken,
   }) {
@@ -48,6 +51,7 @@ class AiChatActionDatasource {
         return _postOpenAiResponsesStream(
           config: config,
           messages: messages,
+          padiChatOptions: padiChatOptions,
           tools: tools,
           cancelToken: cancelToken,
         );
@@ -119,6 +123,18 @@ class AiChatActionDatasource {
     await _storage.setString(
       _chatContextKey,
       jsonEncode(context.toStorageJson()),
+      space: _getChatSpace(sessionId, packageName),
+    );
+  }
+
+  Future<void> savePadiChatOptions(
+    String packageName,
+    String sessionId,
+    PadiChatOptions options,
+  ) async {
+    await _storage.setString(
+      _padiChatOptionsKey,
+      jsonEncode(options.toJson()),
       space: _getChatSpace(sessionId, packageName),
     );
   }
@@ -285,18 +301,22 @@ class AiChatActionDatasource {
   Stream<AiMessageDto> _postOpenAiResponsesStream({
     required AiConfig config,
     required List<AiMessageDto> messages,
+    PadiChatOptions? padiChatOptions,
     List<Map<String, dynamic>>? tools,
     CancelToken? cancelToken,
   }) async* {
     final instructions = _buildResponsesInstructions(messages);
+    final effectiveModel = padiChatOptions?.model ?? config.moduleName;
+    final effectiveReasoningEffort =
+        padiChatOptions?.reasoningEffort ?? _defaultResponsesReasoningEffort;
     final request = <String, dynamic>{
-      'model': config.moduleName,
+      'model': effectiveModel,
       'input': _mapResponsesInput(messages),
       'stream': true,
       'store': false,
       if (instructions.isNotEmpty) 'instructions': instructions,
-      'reasoning': const {
-        'effort': _defaultResponsesReasoningEffort,
+      'reasoning': {
+        'effort': effectiveReasoningEffort,
       },
       'max_output_tokens': config.maxToken,
       if (tools != null && tools.isNotEmpty)

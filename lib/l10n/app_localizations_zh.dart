@@ -914,6 +914,33 @@ class AppLocalizationsZh extends AppLocalizations {
   String get aiApiKeyNotConfigured => 'API Key 未配置';
 
   @override
+  String get aiPadiModelLabel => '模型';
+
+  @override
+  String get aiPadiReasoningLabel => '思考深度';
+
+  @override
+  String get aiPadiEffortNone => '极低';
+
+  @override
+  String get aiPadiEffortLow => '低';
+
+  @override
+  String get aiPadiEffortMedium => '中';
+
+  @override
+  String get aiPadiEffortHigh => '高';
+
+  @override
+  String get aiPadiEffortXHigh => '极高';
+
+  @override
+  String get aiPadiOptionsExpand => '展开';
+
+  @override
+  String get aiPadiOptionsCollapse => '收起';
+
+  @override
   String aiCurrentStatus(String status) {
     return '当前状态：$status';
   }

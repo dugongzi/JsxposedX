@@ -929,6 +929,33 @@ class AppLocalizationsEn extends AppLocalizations {
   String get aiApiKeyNotConfigured => 'API Key not configured';
 
   @override
+  String get aiPadiModelLabel => 'Model';
+
+  @override
+  String get aiPadiReasoningLabel => 'Thinking';
+
+  @override
+  String get aiPadiEffortNone => 'Minimal';
+
+  @override
+  String get aiPadiEffortLow => 'Low';
+
+  @override
+  String get aiPadiEffortMedium => 'Medium';
+
+  @override
+  String get aiPadiEffortHigh => 'High';
+
+  @override
+  String get aiPadiEffortXHigh => 'Extreme';
+
+  @override
+  String get aiPadiOptionsExpand => 'Expand';
+
+  @override
+  String get aiPadiOptionsCollapse => 'Collapse';
+
+  @override
   String aiCurrentStatus(String status) {
     return 'Status: $status';
   }

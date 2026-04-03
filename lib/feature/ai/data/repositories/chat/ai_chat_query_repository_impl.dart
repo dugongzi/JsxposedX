@@ -2,6 +2,7 @@ import 'package:JsxposedX/core/models/ai_message.dart';
 import 'package:JsxposedX/core/models/ai_session.dart';
 import 'package:JsxposedX/feature/ai/data/datasources/chat/ai_chat_query_datasource.dart';
 import 'package:JsxposedX/feature/ai/domain/models/ai_chat_session_context.dart';
+import 'package:JsxposedX/feature/ai/domain/models/padi_chat_options.dart';
 import 'package:JsxposedX/feature/ai/domain/repositories/chat/ai_chat_query_repository.dart';
 
 /// AI 对话查询仓储实现（负责 DTO -> Entity 显式映射）
@@ -31,6 +32,14 @@ class AiChatQueryRepositoryImpl implements AiChatQueryRepository {
     String sessionId,
   ) {
     return dataSource.getSessionContext(packageName, sessionId);
+  }
+
+  @override
+  Future<PadiChatOptions?> getPadiChatOptions(
+    String packageName,
+    String sessionId,
+  ) {
+    return dataSource.getPadiChatOptions(packageName, sessionId);
   }
 
   @override

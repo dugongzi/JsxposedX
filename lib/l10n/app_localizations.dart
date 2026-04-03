@@ -1856,6 +1856,60 @@ abstract class AppLocalizations {
   /// **'API Key 未配置'**
   String get aiApiKeyNotConfigured;
 
+  /// No description provided for @aiPadiModelLabel.
+  ///
+  /// In zh, this message translates to:
+  /// **'模型'**
+  String get aiPadiModelLabel;
+
+  /// No description provided for @aiPadiReasoningLabel.
+  ///
+  /// In zh, this message translates to:
+  /// **'思考深度'**
+  String get aiPadiReasoningLabel;
+
+  /// No description provided for @aiPadiEffortNone.
+  ///
+  /// In zh, this message translates to:
+  /// **'极低'**
+  String get aiPadiEffortNone;
+
+  /// No description provided for @aiPadiEffortLow.
+  ///
+  /// In zh, this message translates to:
+  /// **'低'**
+  String get aiPadiEffortLow;
+
+  /// No description provided for @aiPadiEffortMedium.
+  ///
+  /// In zh, this message translates to:
+  /// **'中'**
+  String get aiPadiEffortMedium;
+
+  /// No description provided for @aiPadiEffortHigh.
+  ///
+  /// In zh, this message translates to:
+  /// **'高'**
+  String get aiPadiEffortHigh;
+
+  /// No description provided for @aiPadiEffortXHigh.
+  ///
+  /// In zh, this message translates to:
+  /// **'极高'**
+  String get aiPadiEffortXHigh;
+
+  /// No description provided for @aiPadiOptionsExpand.
+  ///
+  /// In zh, this message translates to:
+  /// **'展开'**
+  String get aiPadiOptionsExpand;
+
+  /// No description provided for @aiPadiOptionsCollapse.
+  ///
+  /// In zh, this message translates to:
+  /// **'收起'**
+  String get aiPadiOptionsCollapse;
+
   /// No description provided for @aiCurrentStatus.
   ///
   /// In zh, this message translates to:

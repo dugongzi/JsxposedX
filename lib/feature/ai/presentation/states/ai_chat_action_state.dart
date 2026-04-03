@@ -1,6 +1,7 @@
 import 'package:JsxposedX/core/models/ai_message.dart';
 import 'package:JsxposedX/core/models/ai_session.dart';
 import 'package:JsxposedX/feature/ai/domain/models/ai_chat_session_context.dart';
+import 'package:JsxposedX/feature/ai/domain/models/padi_chat_options.dart';
 import 'package:JsxposedX/feature/ai/domain/models/ai_response_issue.dart';
 import 'package:JsxposedX/feature/ai/domain/models/ai_session_init_state.dart';
 
@@ -21,6 +22,10 @@ class AiChatActionState {
     this.sessionContext = const AiChatSessionContext(),
     this.contextStats = const AiChatContextStats(),
     this.contextVersion = AiChatSessionContext.currentVersion,
+    this.currentPadiChatOptions = const PadiChatOptions(
+      model: PadiChatOptions.defaultModel,
+      reasoningEffort: PadiChatOptions.defaultReasoningEffort,
+    ),
   });
 
   final List<AiMessage> messages;
@@ -38,6 +43,12 @@ class AiChatActionState {
   final AiChatSessionContext sessionContext;
   final AiChatContextStats contextStats;
   final int contextVersion;
+  final PadiChatOptions currentPadiChatOptions;
+
+  String get currentPadiModel => currentPadiChatOptions.model;
+
+  String get currentPadiReasoningEffort =>
+      currentPadiChatOptions.reasoningEffort;
 
   List<AiMessage> get visibleMessages {
     if (messages.length <= visibleMessageCount) {
@@ -117,6 +128,7 @@ class AiChatActionState {
     AiChatSessionContext? sessionContext,
     AiChatContextStats? contextStats,
     int? contextVersion,
+    PadiChatOptions? currentPadiChatOptions,
   }) {
     return AiChatActionState(
       messages: messages ?? this.messages,
@@ -142,6 +154,8 @@ class AiChatActionState {
       sessionContext: sessionContext ?? this.sessionContext,
       contextStats: contextStats ?? this.contextStats,
       contextVersion: contextVersion ?? this.contextVersion,
+      currentPadiChatOptions:
+          currentPadiChatOptions ?? this.currentPadiChatOptions,
     );
   }
 }

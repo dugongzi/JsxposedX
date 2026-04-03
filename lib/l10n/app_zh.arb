@@ -482,6 +482,15 @@
   "aiBuiltinSwitching": "正在切换到内置默认接口",
   "aiApiKeyConfigured": "API Key 已配置",
   "aiApiKeyNotConfigured": "API Key 未配置",
+  "aiPadiModelLabel": "模型",
+  "aiPadiReasoningLabel": "思考深度",
+  "aiPadiEffortNone": "极低",
+  "aiPadiEffortLow": "低",
+  "aiPadiEffortMedium": "中",
+  "aiPadiEffortHigh": "高",
+  "aiPadiEffortXHigh": "极高",
+  "aiPadiOptionsExpand": "展开",
+  "aiPadiOptionsCollapse": "收起",
   "aiCurrentStatus": "当前状态：{status}",
   "@aiCurrentStatus": {
     "placeholders": {

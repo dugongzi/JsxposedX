@@ -2,6 +2,7 @@ import 'package:JsxposedX/core/models/ai_config.dart';
 import 'package:JsxposedX/core/models/ai_message.dart';
 import 'package:JsxposedX/core/models/ai_session.dart';
 import 'package:JsxposedX/feature/ai/domain/models/ai_chat_session_context.dart';
+import 'package:JsxposedX/feature/ai/domain/models/padi_chat_options.dart';
 import 'package:dio/dio.dart';
 
 /// AI 对话操作仓储接口
@@ -10,6 +11,7 @@ abstract class AiChatActionRepository {
   Stream<AiMessage> getChatStream({
     required AiConfig config,
     required List<AiMessage> messages,
+    PadiChatOptions? padiChatOptions,
     List<Map<String, dynamic>>? tools,
     CancelToken? cancelToken,
   });
@@ -31,6 +33,12 @@ abstract class AiChatActionRepository {
     String packageName,
     String sessionId,
     AiChatSessionContext context,
+  );
+
+  Future<void> savePadiChatOptions(
+    String packageName,
+    String sessionId,
+    PadiChatOptions options,
   );
 
   /// 记录最后活跃会话
