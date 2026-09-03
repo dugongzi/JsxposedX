@@ -1,7 +1,8 @@
-.idea/caches/
-.idea/libraries/
-.idea/shelf/
-.idea/workspace.xml
+# Android Studio metadata is machine-local; keep only shared run configurations.
+.idea/
+!.idea/runConfigurations/
+!.idea/runConfigurations/**
+!.idea/runConfigurations.xml
 *.iml
 
 
@@ -18,6 +19,9 @@
 docs/
 build/
 
+# Nested Gradle caches (including third-party Android plugins)
+**/.gradle/
+
 
 #Flutter cache
 
@@ -33,6 +37,7 @@ coverage/
 .bin/
 ios/Flutter/Generated.xcconfig
 ios/Flutter/flutter_export_environment.sh
+**/Flutter/ephemeral/
 /.codex_tmp_alex110119_JsxposedX/
 /android/app/src/main/cpp/.idea/.gitignore
 /android/app/src/main/cpp/.idea/.name
